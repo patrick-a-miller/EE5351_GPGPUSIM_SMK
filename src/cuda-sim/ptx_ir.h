@@ -1099,6 +1099,9 @@ public:
    param_t get_value() const { assert(m_value_set); return m_value; }
    size_t get_size() const { assert(m_valid); return m_size; }
    bool is_ptr_shared() const { assert(m_valid); return (m_is_ptr and m_ptr_space == shared_space); }
+   //HIMANSHU
+   bool is_value_set() const { return m_value_set; }
+   //--------
 private:
    bool m_valid;
    std::string m_name;

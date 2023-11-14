@@ -53,7 +53,7 @@ int gpgpu_ptx_instruction_classification;
 void ** g_inst_classification_stat = NULL;
 void ** g_inst_op_classification_stat= NULL;
 int g_ptx_kernel_count = -1; // used for classification stat collection purposes 
-int g_debug_execution = 0;
+int g_debug_execution = 4;
 int g_debug_thread_uid = 0;
 addr_t g_debug_pc = 0xBEEF1518;
 // Output debug information to file options
@@ -1070,7 +1070,7 @@ void function_info::finalize( memory_space *param_mem )
    unsigned param_address = 0;
    for( std::map<unsigned,param_info>::iterator i=m_ptx_kernel_param_info.begin(); i!=m_ptx_kernel_param_info.end(); i++ ) {
       param_info &p = i->second;
-      if (p.is_ptr_shared()) continue; // Pointer to local memory: Should we pass the allocated shared memory address to the param memory space? 
+      if (p.is_ptr_shared() || !p.is_value_set()) continue; // Pointer to local memory: Should we pass the allocated shared memory address to the param memory space? 
       std::string name = p.get_name();
       int type = p.get_type();
       param_t param_value = p.get_value();
@@ -1354,10 +1354,24 @@ void ptx_thread_info::ptx_exec_inst( warp_inst_t &inst, unsigned lane_id)
       StatAddSample( g_inst_op_classification_stat[g_ptx_kernel_count], (int)  pI->get_opcode() );
    }
    if ( (g_ptx_sim_num_insn % 100000) == 0 ) {
+
+      //HIMANSHU
+      gpgpu_sim *gpu = get_gpu();
+      unsigned print_stats_inst = gpu->get_config().get_print_stats_instructions();
+      if ((g_ptx_sim_num_insn % print_stats_inst) == 0){ 
+	gpu->gpu_ptx_sim_num_insn = g_ptx_sim_num_insn;
+        gpu->gpu_print_stats = true;
+      }
+      //--------
       dim3 ctaid = get_ctaid();
       dim3 tid = get_tid();
       printf("GPGPU-Sim PTX: %u instructions simulated : ctaid=(%u,%u,%u) tid=(%u,%u,%u)\n",
              g_ptx_sim_num_insn, ctaid.x,ctaid.y,ctaid.z,tid.x,tid.y,tid.z );
+      //HIMANSHU: Not a good idea.
+      unsigned max_inst = gpu->get_config().get_smk_max_instructions();
+      if (g_ptx_sim_num_insn == max_inst)
+		exit(0);
+      //--------
       fflush(stdout);
    }
    
@@ -1664,11 +1678,14 @@ int g_ptx_sim_mode; // if non-zero run functional simulation only (i.e., no noti
 extern int ptx_debug;
 
 bool g_cuda_launch_blocking = false;
+//HIMANSHU
+//bool g_cuda_launch_blocking = true;
+//--------
 
 void read_sim_environment_variables() 
 {
    ptx_debug = 0;
-   g_debug_execution = 0;
+   g_debug_execution = 4;
    g_interactive_debugger_enabled = false;
 
    char *mode = getenv("PTX_SIM_MODE_FUNC");

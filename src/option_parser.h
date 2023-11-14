@@ -44,7 +44,9 @@ enum option_dtype {
     OPT_FLOAT,
     OPT_DOUBLE,
     OPT_CHAR,
-    OPT_CSTR
+    OPT_CSTR,
+    OPT_DIM3,
+    OPT_SIZET
 };
 
 // create and destroy option parser

@@ -1033,6 +1033,10 @@ class core_t {
             		reduction_storage[i][j]=0;
             	}
             }
+	
+	    //HIMANSHU
+	    running_kernel_index = -1;
+	    //--------
 
         }
         virtual ~core_t() { free(m_thread); }
@@ -1061,6 +1065,11 @@ class core_t {
         unsigned m_warp_size;
         unsigned m_warp_count;
         unsigned reduction_storage[MAX_CTA_PER_SHADER][MAX_BARRIERS_PER_CTA];
+	//HIMANSHU - For spatial or SMK multitasking
+	std::vector<kernel_info_t *> core_kernels;
+	unsigned running_kernel_index;	// keep track of kernel to be scheduled next on a core during SMK.
+	//--------
+
 };
 
 

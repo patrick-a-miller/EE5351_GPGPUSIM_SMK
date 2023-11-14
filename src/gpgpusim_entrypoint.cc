@@ -39,6 +39,9 @@
 #include <pthread.h>
 #include <semaphore.h>
 
+#include <sys/time.h>
+#include <sys/resource.h>
+
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
 
@@ -94,6 +97,13 @@ bool g_sim_done = true;
 
 void *gpgpu_sim_thread_concurrent(void*)
 {
+    //HIMANSHU
+    struct rlimit limits;
+    getrlimit(RLIMIT_STACK, &limits);
+    size_t stacksize = limits.rlim_cur;
+    printf("Stack size for spawned threads: %u\n", stacksize);
+    //--------
+
     // concurrent kernel execution simulation thread
     do {
        if(g_debug_execution >= 3) {
@@ -248,7 +258,10 @@ void print_simulation_time()
 
 int gpgpu_opencl_ptx_sim_main_perf( kernel_info_t *grid )
 {
-   g_the_gpu->launch(grid);
+   //HIMANSHU - Needs to be modified later for spatial multitasking and SMK
+   std::vector<kernel_info_t *> kernel_pointers;
+   //--------
+   g_the_gpu->launch(grid, kernel_pointers);
    sem_post(&g_sim_signal_start);
    sem_wait(&g_sim_signal_finish);
    return 0;

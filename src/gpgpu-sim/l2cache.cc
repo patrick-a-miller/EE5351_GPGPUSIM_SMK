@@ -45,6 +45,12 @@
 #include "mem_latency_stat.h"
 #include "l2cache_trace.h"
 
+//HIMANSHU
+std::vector<unsigned int> l2cache_sid;
+std::vector<unsigned int> l2cache_wid;
+std::vector<enum cache_request_status> l2cache_smk_hitmiss;
+//--------
+
 
 mem_fetch * partition_mf_allocator::alloc(new_addr_type addr, mem_access_type type, unsigned size, bool wr ) const 
 {
@@ -383,6 +389,12 @@ void memory_sub_partition::cache_cycle( unsigned cycle )
                 enum cache_request_status status = m_L2cache->access(mf->get_addr(),mf,gpu_sim_cycle+gpu_tot_sim_cycle,events);
                 bool write_sent = was_write_sent(events);
                 bool read_sent = was_read_sent(events);
+
+		//HIMANSHU
+		l2cache_sid.push_back(mf->get_sid());
+		l2cache_wid.push_back(mf->get_wid());
+		l2cache_smk_hitmiss.push_back(status);
+		//--------
 
                 if ( status == HIT ) {
                     if( !write_sent ) {

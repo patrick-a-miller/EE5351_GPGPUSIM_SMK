@@ -111,6 +111,12 @@
 #include <string>
 #include <sstream>
 #include <fstream>
+
+//HIMANSHU
+#include <iterator>
+#include <list>
+//--------
+
 #ifdef OPENGL_SUPPORT
 #define GL_GLEXT_PROTOTYPES
 #ifdef __APPLE__
@@ -137,9 +143,22 @@
 #include <pthread.h>
 #include <semaphore.h>
 
+using std::vector;
+
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
 #endif
+
+//HIMANSHU - Create a list of all fatCubinHandles, hostFunctions, deviceFunctions and other parameters everytime this function is called. Use those lists for running concurrent kernels.
+vector<void **> fatCubinHandlePtrs;
+vector<const char *> hostFunPtrs;
+vector<char *> deviceFunPtrs;
+vector<const char *> deviceNamePtrs;
+vector<uint3 *> tidPtrs;
+vector<uint3 *> bidPtrs;
+vector<dim3 *> bDimPtrs;
+vector<dim3 *> gDimPtrs;
+//--------
 
 extern void synchronize();
 extern void exit_simulation();
@@ -299,11 +318,32 @@ private:
 	gpgpu_ptx_sim_arg_list_t m_args;
 };
 
+//HIMANSHU - Extract kernel parameters. To be used later during cudaLaunch.
+bool is_spatial_enabled = false;
+bool is_smk_enabled = false;
+char* k1_bdim = 0;
+char* k2_bdim = 0;
+char* k1_gdim = 0;
+char* k2_gdim = 0;
+size_t k1_shmem = 0;
+size_t k2_shmem = 0;
+//-------
 class _cuda_device_id *GPGPUSim_Init()
 {
 	static _cuda_device_id *the_device = NULL;
 	if( !the_device ) {
 		gpgpu_sim *the_gpu = gpgpu_ptx_sim_init_perf();
+	
+		//HIMANSHU
+		is_spatial_enabled = the_gpu->get_config().spatial_enabled();
+		//is_smk_enabled = the_gpu->get_config().smk_enabled;
+		k1_bdim = the_gpu->get_config().get_shader_config().kernel_one_block_dim;
+		k2_bdim = the_gpu->get_config().get_shader_config().kernel_two_block_dim;
+		k1_gdim = the_gpu->get_config().get_shader_config().kernel_one_grid_dim;
+                k2_gdim = the_gpu->get_config().get_shader_config().kernel_two_grid_dim;
+		k1_shmem = the_gpu->get_config().get_shader_config().kernel_one_shared_mem;
+                k2_shmem = the_gpu->get_config().get_shader_config().kernel_two_shared_mem;
+		//--------
 
 		cudaDeviceProp *prop = (cudaDeviceProp *) calloc(sizeof(cudaDeviceProp),1);
 		snprintf(prop->name,256,"GPGPU-Sim_v%s", g_gpgpusim_version_string );
@@ -887,10 +927,39 @@ __host__ const char* CUDARTAPI cudaGetErrorString(cudaError_t error)
 	return strdup(buf);
 }
 
+//HIMANSHU - Extract block dimenion and grid dimension from char pointer
+dim3 extract_dim(char* dim)
+{
+	std::string str = dim;
+	std::stringstream ss(str);
+	//ss << str;
+
+	int xdim = 1, ydim = 1, zdim = 1;
+ 
+	std::string temp;
+	int found;
+	int count = 0;
+	while (!ss.eof()) {
+		ss >> temp;
+		if (std::stringstream(temp) >> found){
+			count ++;
+			if (count == 1)
+				xdim = found;
+			if (count == 2)
+				ydim = found;
+			if (count == 3)
+				zdim = found; 
+		}	
+	}
+	return {xdim, ydim, zdim};
+}
+
+//HIMANSHU - Modify it to enable concurrent kernel execution
 __host__ cudaError_t CUDARTAPI cudaConfigureCall(dim3 gridDim, dim3 blockDim, size_t sharedMem, cudaStream_t stream)
 {
 	struct CUstream_st *s = (struct CUstream_st *)stream;
-	g_cuda_launch_stack.push_back( kernel_config(gridDim,blockDim,sharedMem,s) );
+	//HIMANSHU - Maybe read values from config files
+	g_cuda_launch_stack.push_back( kernel_config(gridDim,blockDim,sharedMem,s) );	
 	return g_last_cudaError = cudaSuccess;
 }
 
@@ -904,27 +973,79 @@ __host__ cudaError_t CUDARTAPI cudaSetupArgument(const void *arg, size_t size, s
 }
 
 
+//HIMANSHU - IMPORTANT: Need to modify this to include all hostFunctions (eg. VecAdd and VecAddCopy)
+bool already_run = false;
+int cudaLaunchCount = 0;
+
 __host__ cudaError_t CUDARTAPI cudaLaunch( const char *hostFun )
 {
+
+	if (cudaLaunchCount == 0) {
+		cudaLaunchCount ++;
+		return g_last_cudaError = cudaSuccess;
+	}		
+
 	CUctx_st* context = GPGPUSim_Context();
 	char *mode = getenv("PTX_SIM_MODE_FUNC");
+	//bool spatial_enabled = gpgpu_spatial_enabled; 
 	if( mode )
 		sscanf(mode,"%u", &g_ptx_sim_mode);
 	gpgpusim_ptx_assert( !g_cuda_launch_stack.empty(), "empty launch stack" );
 	kernel_config config = g_cuda_launch_stack.back();
+	
+ 	//HIMANSHU
+	int nkernels = g_cuda_launch_stack.size(); 
+	std::list<kernel_config> configs;
+	std::list<kernel_config>::iterator it;
+	for (it = g_cuda_launch_stack.begin(); it != g_cuda_launch_stack.end(); it ++)
+		configs.push_back(*it);
+	//--------
+	
 	struct CUstream_st *stream = config.get_stream();
+	unsigned curr_uid = stream->get_uid();
+
+	//HIMANSHU
+	std::list<struct CUstream_st *> streams;
+	std::list<kernel_config>::iterator it_st;
+	for (it_st = configs.begin(); it_st != configs.end(); it_st ++){
+		struct CUstream_st *curr_stream = (*it_st).get_stream();
+		curr_uid = curr_uid + 1;
+		//if (curr_stream)
+		//	curr_stream->set_uid(curr_uid);
+		streams.push_back(curr_stream);
+	}
+	//--------
+
 	printf("\nGPGPU-Sim PTX: cudaLaunch for 0x%p (mode=%s) on stream %u\n", hostFun,
-			g_ptx_sim_mode?"functional simulation":"performance simulation", stream?stream->get_uid():0 );
-	kernel_info_t *grid = gpgpu_cuda_ptx_sim_init_grid(hostFun,config.get_args(),config.grid_dim(),config.block_dim(),context);
+		g_ptx_sim_mode?"functional simulation":"performance simulation", stream?stream->get_uid():0 );
+
+	//HIMANSHU
+	int count = 0;
+	for (it = configs.begin(); it != configs.end(); it ++) {
+		kernel_info_t *grid = gpgpu_cuda_ptx_sim_init_grid(hostFunPtrs[count],(*it).get_args(),(*it).grid_dim(),(*it).block_dim(),context);
+        	std::string kname = grid->name();
+        	dim3 gridDim = (*it).grid_dim();
+        	dim3 blockDim = (*it).block_dim();
+		count ++;
+		struct CUstream_st *curr_stream = (*it).get_stream();
+		printf("GPGPU-Sim PTX: pushing kernel \'%s\' to stream %u, gridDim= (%u,%u,%u) blockDim = (%u,%u,%u) \n",
+                kname.c_str(), curr_stream?curr_stream->get_uid():0, gridDim.x,gridDim.y,gridDim.z,blockDim.x,blockDim.y,blockDim.z );
+		stream_operation op(grid, g_ptx_sim_mode, curr_stream);
+		g_stream_manager->push(op);		
+	}
+	//--------
+
+	/*kernel_info_t *grid = gpgpu_cuda_ptx_sim_init_grid(hostFun,config.get_args(),config.grid_dim(),config.block_dim(),context);
 	std::string kname = grid->name();
 	dim3 gridDim = config.grid_dim();
 	dim3 blockDim = config.block_dim();
 	printf("GPGPU-Sim PTX: pushing kernel \'%s\' to stream %u, gridDim= (%u,%u,%u) blockDim = (%u,%u,%u) \n",
-			kname.c_str(), stream?stream->get_uid():0, gridDim.x,gridDim.y,gridDim.z,blockDim.x,blockDim.y,blockDim.z );
+		kname.c_str(), stream?stream->get_uid():0, gridDim.x,gridDim.y,gridDim.z,blockDim.x,blockDim.y,blockDim.z );
 	stream_operation op(grid,g_ptx_sim_mode,stream);
 	g_stream_manager->push(op);
-	g_cuda_launch_stack.pop_back();
+	g_cuda_launch_stack.pop_back();*/
 	return g_last_cudaError = cudaSuccess;
+
 }
 
 /*******************************************************************************
@@ -1329,6 +1450,7 @@ void extract_code_using_cuobjdump(){
 		printf("Parsing file %s\n", fname);
 		cuobjdump_in = fopen(fname, "r");
 
+		//HIMANSHU -- Important
 		cuobjdump_parse();
 		fclose(cuobjdump_in);
 		printf("Done parsing!!!\n");
@@ -1584,6 +1706,7 @@ void cuobjdumpParseBinary(unsigned int handle){
 	//TODO: Remove temporarily files as per configurations
 }
 
+//HIMANSHU - IMPORTANT: Receives fatCubin from __cudaRegisterAll()
 void** CUDARTAPI __cudaRegisterFatBinary( void *fatCubin )
 {
 #if (CUDART_VERSION < 2010)
@@ -1624,6 +1747,7 @@ void** CUDARTAPI __cudaRegisterFatBinary( void *fatCubin )
 		 */
 		assert(fat_cubin_handle >= 1);
 		if (fat_cubin_handle==1) cuobjdumpInit();
+		//HIMANSHU
 		cuobjdumpRegisterFatBinary(fat_cubin_handle, filename);
 
 		return (void**)fat_cubin_handle;
@@ -1700,7 +1824,7 @@ cudaError_t CUDARTAPI cudaDeviceSynchronize(void){
 	return g_last_cudaError = cudaSuccess;
 }
 
-
+//HIMANSHU - IMPORTANT: Called directly from __cudaRegisterAll()
 void CUDARTAPI __cudaRegisterFunction(
 		void   **fatCubinHandle,
 		const char    *hostFun,
@@ -1713,6 +1837,17 @@ void CUDARTAPI __cudaRegisterFunction(
 		dim3    *gDim
 )
 {
+
+	//Add all the pointers to global variables
+	fatCubinHandlePtrs.push_back(fatCubinHandle);
+	hostFunPtrs.push_back(hostFun);
+	deviceFunPtrs.push_back(deviceFun);
+	deviceNamePtrs.push_back(deviceName);
+	tidPtrs.push_back(tid);
+	bidPtrs.push_back(bid);
+	bDimPtrs.push_back(bDim);
+	gDimPtrs.push_back(gDim);
+
 	CUctx_st *context = GPGPUSim_Context();
 	unsigned fat_cubin_handle = (unsigned)(unsigned long long)fatCubinHandle;
 	printf("GPGPU-Sim PTX: __cudaRegisterFunction %s : hostFun 0x%p, fat_cubin_handle = %u\n",
@@ -2128,6 +2263,7 @@ kernel_info_t *gpgpu_cuda_ptx_sim_init_grid( const char *hostFun,
 		argn++;
 	}
 
+	//HIMANSHU - Fix error
 	entry->finalize(result->get_param_memory());
 	g_ptx_kernel_count++;
 	fflush(stdout);

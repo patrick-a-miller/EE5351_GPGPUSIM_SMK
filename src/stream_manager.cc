@@ -110,6 +110,9 @@ void CUstream_st::print(FILE *fp)
     pthread_mutex_unlock(&m_lock);
 }
 
+//HIMANSHU
+std::vector<kernel_info_t *> kernel_pointers;
+//--------
 
 void stream_operation::do_operation( gpgpu_sim *gpu )
 {
@@ -156,8 +159,20 @@ void stream_operation::do_operation( gpgpu_sim *gpu )
         	printf("kernel \'%s\' transfer to GPU hardware scheduler\n", m_kernel->name().c_str() );
             if( m_sim_mode )
                 gpgpu_cuda_ptx_sim_main_func( *m_kernel );
-            else
-                gpu->launch( m_kernel );
+            else {
+			//HIMANSHU - Call launch only if more than one kernel are transferred to
+			//GPU hardware scheduler
+			bool is_spatial_enabled = gpu->get_config().spatial_enabled();
+			bool is_smk_enabled = gpu->get_config().smk_enabled();
+			kernel_pointers.push_back(m_kernel);
+			if (is_spatial_enabled && (kernel_pointers.size() > 1))
+				gpu->launch( m_kernel, kernel_pointers );
+			if (is_smk_enabled && (kernel_pointers.size() > 1))
+				gpu->launch( m_kernel, kernel_pointers );
+			if (!is_spatial_enabled && !is_smk_enabled)
+				gpu->launch( m_kernel, kernel_pointers );
+			//--------
+		 }
         }
         break;
     case stream_event: {
@@ -197,7 +212,7 @@ stream_manager::stream_manager( gpgpu_sim *gpu, bool cuda_launch_blocking )
     pthread_mutex_init(&m_lock,NULL);
 }
 
-bool stream_manager::operation( bool * sim)
+bool stream_manager::operation( bool * sim )
 {
     pthread_mutex_lock(&m_lock);
     bool check=check_finished_kernel();
@@ -389,3 +404,20 @@ void stream_manager::push( stream_operation op )
     }
 }
 
+//HIMANSHU
+//Returns a list of all operations in the front of each stream
+std::list<stream_operation> stream_manager::get_next_op_all_streams()
+{
+	pthread_mutex_lock(&m_lock);
+	std::list<CUstream_st *> all_streams = get_all_streams();
+	std::list<stream_operation> ops;
+	std::list<CUstream_st *>::iterator i;
+
+    	for( i=all_streams.begin(); i!=all_streams.end(); i++ ) {
+		ops.push_back((*i)->next());
+	}
+	pthread_mutex_unlock(&m_lock);
+
+	return ops;
+}
+//-------

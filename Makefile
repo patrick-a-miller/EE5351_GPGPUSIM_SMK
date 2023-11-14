@@ -43,6 +43,10 @@ endif
 BUILD_ROOT?=$(shell pwd)
 export TRACE?=1
 
+#HIMANSHU
+$(info BUILD ROOT = $(BUILD_ROOT))
+#--------
+
 NVCC_PATH=$(shell which nvcc)
 ifneq ($(shell which nvcc), "")
 	ifeq ($(DEBUG), 1)
@@ -56,6 +60,10 @@ endif
 
 LIBS = cuda-sim gpgpu-sim_uarch $(INTERSIM) gpgpusimlib 
 
+#HIMANSHU
+$(info GPGPU SIM LIB DIR = $(SIM_LIB_DIR))
+$(info GPGPU SIM OBJ DIR = $(SIM_OBJ_FILES_DIR))
+#--------
 
 TARGETS =
 ifeq ($(shell uname),Linux)
@@ -93,6 +101,9 @@ endif
 .PHONY: check_setup_environment check_power
 gpgpusim: check_setup_environment check_power makedirs $(TARGETS)
 
+#HIMANSHU
+$(info GPGPU SIM ROOT = $(GPGPUSIM_ROOT))
+#--------
 
 check_setup_environment:
 	 @if [ ! -n "$(GPGPUSIM_ROOT)" -o ! -n "$(CUDA_INSTALL_PATH)" -o ! -n "$(GPGPUSIM_SETUP_ENVIRONMENT_WAS_RUN)" ]; then \
@@ -192,8 +203,8 @@ cuda-sim: makedirs
 	$(MAKE) -C ./src/cuda-sim/
 
 gpgpu-sim_uarch: makedirs cuda-sim
-	$(MAKE) -C ./src/gpgpu-sim/ depend
-	$(MAKE) -C ./src/gpgpu-sim/
+	$(MAKE) -I/usr/include -C ./src/gpgpu-sim/ depend
+	$(MAKE) -I/usr/include -C ./src/gpgpu-sim/
 
 $(INTERSIM): makedirs cuda-sim gpgpu-sim_uarch
 	$(MAKE) "CREATE_LIBRARY=1" "DEBUG=$(DEBUG)" -C ./src/$(INTERSIM)

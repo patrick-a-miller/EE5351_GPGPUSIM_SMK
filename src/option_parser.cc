@@ -39,7 +39,6 @@
 #include <string.h>
 #include "option_parser.h"
 
-
 using namespace std;
 
 // A generic option registry regardless of data type
@@ -183,6 +182,8 @@ bool OptionRegistry<bool>::fromString(const string str)
 template<>
 bool OptionRegistry<bool>::isFlag() { return true; }
 
+//HIMANSHU
+#include "abstract_hardware_model.h"
 // class holding a collection of options and parse them from command line/configfile
 class OptionParser
 {
@@ -202,7 +203,9 @@ public:
       OptionRegistry<T> *p_option = new OptionRegistry<T>(optionName, optionDesc, optionVariable);
       m_optionReg.push_back(p_option);
       m_optionMap[optionName] = p_option;
+    
       p_option->assignDefault(optionDefault);
+    
    }
 
    void ParseCommandLine(int argc, const char * const argv[])
@@ -361,6 +364,10 @@ void option_parser_destroy(option_parser_t opp)
    delete p_opr;
 }
 
+//HIMANSHU
+#include "abstract_hardware_model.h"
+//--------
+
 void option_parser_register(option_parser_t opp, 
                             const char *name, 
                             enum option_dtype type, 
@@ -379,6 +386,9 @@ void option_parser_register(option_parser_t opp,
       case OPT_DOUBLE:    p_opr->Register<double>(name, desc, *(double*)variable, defaultvalue); break;
       case OPT_CHAR:      p_opr->Register<char>(name, desc, *(char*)variable, defaultvalue); break;
       case OPT_CSTR:      p_opr->Register<char*>(name, desc, *(char**)variable, defaultvalue); break;
+      //HIMANSHU
+      case OPT_SIZET:     p_opr->Register<size_t>(name, desc, *(size_t*)variable, defaultvalue); break;
+      //--------
         default:
             fprintf(stderr, "\n\nGPGPU-Sim ** ERROR: option data type (%d) not supported!\n", type);
             exit(1);

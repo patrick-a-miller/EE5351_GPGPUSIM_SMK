@@ -221,6 +221,9 @@ public:
     stream_operation &front() { return m_operations.front(); }
     void print( FILE *fp );
     unsigned get_uid() const { return m_uid; }
+    //HIMANSHU
+    void set_uid(unsigned uid) { m_uid = uid; }
+    //--------
 
 private:
     unsigned m_uid;
@@ -246,6 +249,13 @@ public:
     void print( FILE *fp);
     void push( stream_operation op );
     bool operation(bool * sim);
+    //HIMANSHU
+    std::list<CUstream_st *> get_all_streams(){ return m_streams; }
+    std::list<stream_operation> get_next_op_all_streams();
+    int return_num_kernels_all_streams() { return kernel_pointers.size(); }
+    void add_kernel_info_all_streams(kernel_info_t *k) { kernel_pointers.push_back(k); }
+    //--------
+
 private:
     void print_impl( FILE *fp);
 
@@ -256,6 +266,9 @@ private:
     CUstream_st m_stream_zero;
     bool m_service_stream_zero;
     pthread_mutex_t m_lock;
+    //HIMANSHU
+    std::vector<kernel_info_t *> kernel_pointers;
+    //--------
 };
 
 #endif

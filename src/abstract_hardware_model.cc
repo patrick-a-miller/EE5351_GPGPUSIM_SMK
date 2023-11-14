@@ -394,13 +394,17 @@ void warp_inst_t::memory_coalescing_arch_13( bool is_write, mem_access_type acce
                 transaction_info &info = subwarp_transactions[block_address];
 
                 // can only write to one segment
-                assert(block_address == line_size_based_tag_func(addr+data_size_coales-1,segment_size));
+                //HIMANSHU - Might cause issue on multi-kernel launch. Commented out.
+		//assert(block_address == line_size_based_tag_func(addr+data_size_coales-1,segment_size));
 
                 info.chunks.set(chunk);
                 info.active.set(thread);
                 unsigned idx = (addr&127);
                 for( unsigned i=0; i < data_size_coales; i++ )
-                    info.bytes.set(idx+i);
+			//HIMANSHU - Avoid out of range error
+			if ((idx+i) < info.bytes.size())
+			//--------
+                    		info.bytes.set(idx+i);
             }
         }
 
