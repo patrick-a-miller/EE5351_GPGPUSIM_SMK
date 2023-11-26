@@ -53,7 +53,13 @@ typedef void *yyscan_t;
 #include "ptx_parser.h"
 #include "ptx_sim.h"
 
-int g_debug_execution = 0;
+/*******************
+     * SMK changes --orig. auth: HIMASHU
+     * default is 0, changes had 4 at least initially
+     **/
+//- int g_debug_execution = 0;
+int g_debug_execution = 4;
+/***********************/
 // Output debug information to file options
 
 void cuda_sim::ptx_opcocde_latency_options(option_parser_t opp) {
@@ -1350,9 +1356,16 @@ void function_info::finalize(memory_space *param_mem) {
            m_ptx_kernel_param_info.begin();
        i != m_ptx_kernel_param_info.end(); i++) {
     param_info &p = i->second;
-    if (p.is_ptr_shared())
-      continue;  // Pointer to local memory: Should we pass the allocated shared
-                 // memory address to the param memory space?
+    /*******************
+     * SMK changes --orig. auth: HIMASHU
+     * 
+     **/
+    //- if (p.is_ptr_shared())
+    //  continue;  // Pointer to local memory: Should we pass the allocated shared
+    //             // memory address to the param memory space?
+    if (p.is_ptr_shared() || !p.is_value_set()) continue; // Pointer to local memory: Should we pass the allocated 
+                                                          //shared memory address to the param memory space?
+    /*********************************/
     std::string name = p.get_name();
     int type = p.get_type();
     param_t param_value = p.get_value();
@@ -1921,6 +1934,19 @@ void ptx_thread_info::ptx_exec_inst(warp_inst_t &inst, unsigned lane_id) {
                     (int)pI->get_opcode());
     }
     if ((m_gpu->gpgpu_ctx->func_sim->g_ptx_sim_num_insn % 100000) == 0) {
+/*******************
+     * SMK changes --orig. auth: HIMASHU
+     * print accumulated SMK stats
+     **/
+    //HIMANSHU
+      gpgpu_sim *gpu = get_gpu();
+      unsigned print_stats_inst = gpu->get_config().get_print_stats_instructions();
+      if ((g_ptx_sim_num_insn % print_stats_inst) == 0){ 
+        	gpu->gpu_ptx_sim_num_insn = g_ptx_sim_num_insn;
+          gpu->gpu_print_stats = true;
+      }
+      //--------
+/**************************/
       dim3 ctaid = get_ctaid();
       dim3 tid = get_tid();
       DPRINTF(LIVENESS,
@@ -1929,6 +1955,16 @@ void ptx_thread_info::ptx_exec_inst(warp_inst_t &inst, unsigned lane_id) {
               m_gpu->gpgpu_ctx->func_sim->g_ptx_sim_num_insn, ctaid.x, ctaid.y,
               ctaid.z, tid.x, tid.y, tid.z);
       fflush(stdout);
+      /*******************
+     * SMK changes --orig. auth: HIMASHU
+     * not good idea?
+     **/
+    //HIMANSHU: Not a good idea.
+      unsigned max_inst = gpu->get_config().get_smk_max_instructions();
+      if (g_ptx_sim_num_insn == max_inst)
+		  exit(0);
+      //--------
+      /****************/
     }
 
     // "Return values"
@@ -2270,7 +2306,13 @@ extern int ptx_debug;
 
 void cuda_sim::read_sim_environment_variables() {
   ptx_debug = 0;
-  g_debug_execution = 0;
+  /*******************
+     * SMK changes --orig. auth: HIMASHU
+     * default is 0, changes had 4 at least initially
+     **/
+  //- g_debug_execution = 0;
+  g_debug_execution = 4;
+  /*************/
   g_interactive_debugger_enabled = false;
 
   char *mode = getenv("PTX_SIM_MODE_FUNC");

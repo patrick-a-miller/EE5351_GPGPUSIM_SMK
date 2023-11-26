@@ -48,6 +48,21 @@
 #include "traffic_breakdown.h"
 #include "visualizer.h"
 
+/*******************
+* SMK changes --orig. auth: HIMASHU
+* SMK headers, defines
+**/
+//HIMANSHU
+#include <stdio.h>
+#include <iostream>
+#include <sstream>
+#include <string>
+#define INT_SIZE 4
+#define DOUBLE_SIZE 4
+#define CHAR_SIZE 1
+//--------
+/****************************/
+
 #define PRIORITIZE_MSHR_OVER_WB 1
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
@@ -132,6 +147,29 @@ void shader_core_ctx::create_front_pipeline() {
   m_not_completed = 0;
   m_active_threads.reset();
   m_n_active_cta = 0;
+  
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * TODO: evaluate changes that led to surrounding code being moved to pipeline funct
+  **/
+  //HIMANSHU
+  m_shader_curr_ipc = 0;
+  m_shader_prev_ipc = 0;
+  m_shader_sim_insn = 0;
+  m_shader_sim_cycles = 0;
+  m_shader_rl_action_possible = -1;
+  m_shader_init_rl = false;
+  /*bool rl_enabled = m_gpu->get_config().get_rl_enabled();
+  if (rl_enabled){
+    int port_num = 5555 + m_sid;
+    zmq_port = "tcp://localhost:" + std::to_string(port_num);
+    create_zmq_context();
+  }*/
+  set_cta_count_to_zero_smk();
+  set_step_size_to_one_acsmk();
+  //--------
+  /*********************************************/
+
   for (unsigned i = 0; i < MAX_CTA_PER_SHADER; i++) m_cta_status[i] = 0;
   for (unsigned i = 0; i < m_config->n_thread_per_shader; i++) {
     m_thread[i] = NULL;
@@ -377,6 +415,15 @@ void shader_core_ctx::create_exec_pipeline() {
 
   // m_fu = new simd_function_unit*[m_num_function_units];
 
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * TODO: evaluate changes that led to surrounding code being moved to exe funct
+  **/
+  //HIMANSHU
+  init_last_exe_kernel_func();
+  //--------
+  /***********************************/
+
   for (int k = 0; k < m_config->gpgpu_num_sp_units; k++) {
     m_fu.push_back(new sp_unit(&m_pipeline_reg[EX_WB], m_config, this));
     m_dispatch_port.push_back(ID_OC_SP);
@@ -468,6 +515,27 @@ shader_core_ctx::shader_core_ctx(class gpgpu_sim *gpu,
   m_occupied_cta_to_hwtid.clear();
 }
 
+/*******************
+* SMK changes --orig. auth: HIMASHU
+* SMK reinit
+**/
+void shader_core_ctx::reinit_smk(unsigned start_thread, unsigned end_thread, bool reset_not_completed, kernel_info_t &kernel) {
+  if( reset_not_completed ) {
+    m_not_completed = 0;
+    m_active_threads.reset();
+  }
+  for (unsigned i = start_thread; i<end_thread; i++) {
+    m_threadState[i].n_insn = 0;
+    m_threadState[i].m_cta_id = -1;
+  }
+  for (unsigned i = start_thread / m_config->warp_size; i < end_thread / m_config->warp_size; ++i) {
+    m_warp[i].reset();
+    m_simt_stack[i]->reset();
+  }
+}
+//--------
+/*******************************************/
+
 void shader_core_ctx::reinit(unsigned start_thread, unsigned end_thread,
                              bool reset_not_completed) {
   if (reset_not_completed) {
@@ -535,8 +603,19 @@ void shader_core_ctx::init_warps(unsigned cta_id, unsigned start_thread,
         }
         start_pc = pc;
       }
+      
+      /*******************
+      * SMK changes --orig. auth: HIMASHU
+      * SMK pass kernel data to warp
+      * m_warp[i].init(start_pc,cta_id,i,active_threads, m_dynamic_warp_id, &kernel);
+      **/
+      //- m_warp[i]->init(start_pc, cta_id, i, active_threads, m_dynamic_warp_id);
+      m_warp[i]->init(start_pc, cta_id, i, active_threads, m_dynamic_warp_id, &kernel);
+	    //HIMANSHU - Set warp kernel for SMK
+	    //set_warp_kernel(i, &kernel);
+	    //--------
+      /*****************************/
 
-      m_warp[i]->init(start_pc, cta_id, i, active_threads, m_dynamic_warp_id);
       ++m_dynamic_warp_id;
       m_not_completed += n_active;
       ++m_active_warps;
@@ -904,6 +983,22 @@ void shader_core_ctx::fetch() {
         unsigned warp_id =
             (m_last_warp_fetched + 1 + i) % m_config->max_warps_per_shader;
 
+        /*******************
+        * SMK changes --orig. auth: HIMASHU
+        * SMK pass kernel data to warp
+        * TODO: review other kernel structures being accessed vs smk struct
+        * m_warp[i].init(start_pc,cta_id,i,active_threads, m_dynamic_warp_id, &kernel);
+        **/
+        kernel_info_t *k = m_warp[warp_id].get_warp_kernel();
+
+        //register_cta_thread_exit(cta_id, k);
+        //thread exit pulls other kernel data?
+
+        //after set_done_exit
+        //HIMANSHU - Necessary to prevent resource conflicts
+                //shader_rl_scheduler(k);
+        /****************************/
+
         // this code checks if this warp has finished executing and can be
         // reclaimed
         if (m_warp[warp_id]->hardware_done() &&
@@ -970,6 +1065,16 @@ void shader_core_ctx::fetch() {
             m_warp[warp_id]->set_last_fetch(m_gpu->gpu_sim_cycle);
             delete mf;
           } else {
+
+            /*******************
+            * SMK changes --orig. auth: HIMASHU
+            * SMK pass kernel data to warp
+            * TODO: review other kernel structures being accessed vs smk struct
+            **/
+            //HIMANSHU
+		        reservation_fails[k] = reservation_fails[k] + 1;
+		        //--------
+            /*******************************/
             m_last_warp_fetched = warp_id;
             assert(status == RESERVATION_FAIL);
             delete mf;
@@ -1197,6 +1302,18 @@ void scheduler_unit::cycle() {
               "instruction flush\n",
               (*iter)->get_warp_id(), (*iter)->get_dynamic_warp_id());
           // control hazard
+          /*******************
+          * SMK changes --orig. auth: HIMASHU
+          * SMK pass kernel data to warp
+          * TODO: review other kernel structures being accessed vs smk struct
+          **/
+          //HIMANSHU
+          gpgpu_sim * gpu = m_shader->get_gpu();
+          kernel_info_t * k = (*iter)->get_warp_kernel();
+		      m_shader->m_cycles_control_hazard[k] = m_shader->m_cycles_control_hazard[k] + 1;
+          gpu->m_cycles_control_hazard[k] = gpu->m_cycles_control_hazard[k] + 1;
+          //--------      
+          /***********************************/
           warp(warp_id).set_next_pc(pc);
           warp(warp_id).ibuffer_flush();
         } else {
@@ -1371,6 +1488,17 @@ void scheduler_unit::cycle() {
 
             }  // end of else
           } else {
+            /*******************
+            * SMK changes --orig. auth: HIMASHU
+            * SMK hazard tracking 
+            **/
+            //HIMANSHU
+			      gpgpu_sim * gpu = m_shader->get_gpu();
+			      kernel_info_t * k = (*iter)->get_warp_kernel();
+			      m_shader->m_cycles_data_hazard[k] = m_shader->m_cycles_data_hazard[k] + 1;
+			      gpu->m_cycles_data_hazard[k] = gpu->m_cycles_data_hazard[k] + 1;
+			      //--------	
+            /******************************************/
             SCHED_DPRINTF(
                 "Warp (warp_id %u, dynamic_warp_id %u) fails scoreboard\n",
                 (*iter)->get_warp_id(), (*iter)->get_dynamic_warp_id());
@@ -1670,6 +1798,42 @@ void shader_core_ctx::execute() {
     unsigned issue_port = m_issue_port[n];
     register_set &issue_inst = m_pipeline_reg[issue_port];
     warp_inst_t **ready_reg = issue_inst.get_ready();
+    /*******************
+    * SMK changes --orig. auth: HIMASHU
+    * calculate readiness, occupied cycles per kernel
+    * TODO: review if addl functional units require extension
+    **/
+    // HIMANSHU
+	  unsigned warpId = -1;
+	  kernel_info_t *k;
+	  warp_inst_t * dispatch_reg = m_fu[n]->get_dispatch_reg();
+	  if (ready_reg) {
+		  warpId = (*ready_reg)->warp_id();
+		  k = m_warp[warpId].get_warp_kernel();
+		  if (!last_executed_kernel_fu.empty()){
+			  bool waiting = issue_inst.has_ready() && (!m_fu[n]->can_issue( **ready_reg )) && (k != 0x0) 
+				       && (last_executed_kernel_fu[n] != 0x0) && (last_executed_kernel_fu[n] != k);
+
+			  // Calculate wait cycles for using the functional unit
+			  if (waiting) { 
+				  if (m_fu_prev_dispatch_reg[n] == dispatch_reg) {
+					  if (*ready_reg != m_prev_ready_reg[n]){
+						  gpgpu_sim *gpu = get_gpu();
+						  kernel_inst_wait_fu[k][n] = kernel_inst_wait_fu[k][n] + (*ready_reg)->active_count();
+						  gpu->m_kernel_inst_wait_cycles_fu[k][n] = gpu->m_kernel_inst_wait_cycles_fu[k][n] + (dispatch_reg->active_count() * dispatch_reg->initiation_interval);
+					  }
+				  }
+				  if (m_fu_prev_dispatch_reg[n] != dispatch_reg) {
+            gpgpu_sim *gpu = get_gpu();
+					  kernel_inst_wait_fu[k][n] = kernel_inst_wait_fu[k][n] + (*ready_reg)->active_count();
+            gpu->m_kernel_inst_wait_cycles_fu[k][n] = gpu->m_kernel_inst_wait_cycles_fu[k][n] + (dispatch_reg->active_count() * dispatch_reg->initiation_interval);
+          }
+			  }
+		  }
+		  m_prev_ready_reg[n] = (*ready_reg);
+	  }
+	  // --------
+    /************************************/
     if (issue_inst.has_ready() && m_fu[n]->can_issue(**ready_reg)) {
       bool schedule_wb_now = !m_fu[n]->stallable();
       int resbus = -1;
@@ -1677,8 +1841,27 @@ void shader_core_ctx::execute() {
           (resbus = test_res_bus((*ready_reg)->latency)) != -1) {
         assert((*ready_reg)->latency < MAX_ALU_LATENCY);
         m_result_bus[resbus]->set((*ready_reg)->latency);
+
+        /*******************
+        * SMK changes --orig. auth: HIMASHU
+        * track what kernel last used unit n, ready_reg?
+        **/
+        //HIMANSHU
+        last_executed_kernel_fu[n] = k;
+        m_fu_prev_dispatch_reg[n] = (*ready_reg);
+		    //--------
+        /**************************************/
         m_fu[n]->issue(issue_inst);
       } else if (!schedule_wb_now) {
+        /*******************
+        * SMK changes --orig. auth: HIMASHU
+        * track what kernel last used unit n, inst can stall on wb, still issues now
+        **/
+        //HIMANSHU
+        last_executed_kernel_fu[n] = k;
+        m_fu_prev_dispatch_reg[n] = (*ready_reg);
+        //--------
+        /*********************************************/
         m_fu[n]->issue(issue_inst);
       } else {
         // stall issue (cannot reserve result bus)
@@ -1724,15 +1907,82 @@ void shader_core_ctx::warp_inst_complete(const warp_inst_t &inst) {
   else if (inst.op_pipe == MEM__OP)
     m_stats->m_num_mem_committed[m_sid]++;
 
-  if (m_config->gpgpu_clock_gated_lanes == false)
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * track completions in SMK struct
+  **/
+  //- if (m_config->gpgpu_clock_gated_lanes == false)
+    //- m_stats->m_num_sim_insn[m_sid] += m_config->warp_size;
+  //- else
+  if(m_config->gpgpu_clock_gated_lanes==false){
     m_stats->m_num_sim_insn[m_sid] += m_config->warp_size;
-  else
+    m_shader_sim_insn += m_config->warp_size;
+  }else{
+    /********************************************/
     m_stats->m_num_sim_insn[m_sid] += inst.active_count();
-
+    /*******************
+    * SMK changes --orig. auth: HIMASHU
+    * track completions in SMK struct
+    **/
+    m_shader_sim_insn += inst.active_count();
+  }
   m_stats->m_num_sim_winsn[m_sid]++;
   m_gpu->gpu_sim_insn += inst.active_count();
   inst.completed(m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle);
 }
+
+/*******************
+* SMK changes --orig. auth: HIMASHU
+* SMK variat of ::warp_inst_complete
+TODO: review aligning code analogous to base version that may have changed with v4
+**/
+//HIMANSHU - SMK version of warp_inst_complete
+void shader_core_ctx::warp_inst_complete_smk(const warp_inst_t &inst, kernel_info_t *kernel)
+{
+   #if 0
+      printf("[warp_inst_complete] uid=%u core=%u warp=%u pc=%#x @ time=%llu issued@%llu\n", 
+             inst.get_uid(), m_sid, inst.warp_id(), inst.pc, gpu_tot_sim_cycle + gpu_sim_cycle, inst.get_issue_cycle()); 
+   #endif
+  //HIMANSHU
+  int n = -1;	// Valid only for GTX480
+  //--------
+  if(inst.op_pipe==SP__OP){
+          m_stats->m_num_sp_committed[m_sid]++;
+	  n = 0;
+  }
+  else if(inst.op_pipe==SFU__OP){
+          m_stats->m_num_sfu_committed[m_sid]++;
+	  n = 2;
+  }
+  else if(inst.op_pipe==MEM__OP){
+          m_stats->m_num_mem_committed[m_sid]++;
+	  n = 3;
+  }
+
+  if(m_config->gpgpu_clock_gated_lanes==false){
+          m_stats->m_num_sim_insn[m_sid] += m_config->warp_size;
+	  m_shader_sim_insn += m_config->warp_size;
+  }
+  else {
+          m_stats->m_num_sim_insn[m_sid] += inst.active_count();
+	  m_shader_sim_insn += inst.active_count();
+  }
+  m_stats->m_num_sim_winsn[m_sid]++;
+  m_gpu->gpu_sim_insn += inst.active_count();
+  //HIMANSHU
+  kernel_inst_type[kernel][n] = kernel_inst_type[kernel][n] + inst.active_count();  
+  m_gpu->gpu_sim_insn_smk[kernel] += inst.active_count();
+  int index = std::distance(m_gpu->gpu_sim_insn_smk.begin(), m_gpu->gpu_sim_insn_smk.find(kernel));
+  m_gpu->gpu_sim_insn_kernels[index] += inst.active_count();
+  /*if (m_gpu->gpu_sim_insn % 10000000 == 0){
+	printf("Simulated inst: %lld\n", m_gpu->gpu_sim_insn);
+  	printf("Kernel 1 simulated inst: %lld\n", m_gpu->gpu_sim_insn_kernels[0]);
+	printf("Kernel 1 simulated inst: %lld\n", m_gpu->gpu_sim_insn_kernels[1]);
+  }*/
+  //--------
+  inst.completed(gpu_tot_sim_cycle + gpu_sim_cycle);
+}
+//--------
 
 void shader_core_ctx::writeback() {
   unsigned max_committed_thread_instructions =
@@ -1768,9 +2018,25 @@ void shader_core_ctx::writeback() {
 
     m_operand_collector.writeback(*pipe_reg);
     unsigned warp_id = pipe_reg->warp_id();
-    m_scoreboard->releaseRegisters(pipe_reg);
-    m_warp[warp_id]->dec_inst_in_pipeline();
-    warp_inst_complete(*pipe_reg);
+
+    /*******************
+    * SMK changes --orig. auth: HIMASHU
+    * SMK tracking, route to native/smk functions
+    **/
+    //- m_scoreboard->releaseRegisters(pipe_reg);
+    //- m_warp[warp_id]->dec_inst_in_pipeline();
+    //- warp_inst_complete(*pipe_reg);
+    //HIMANSHU
+	  kernel_info_t *k = m_warp[warp_id].get_warp_kernel();
+   	bool is_smk_enabled = m_gpu->get_config().smk_enabled();
+   	m_scoreboard->releaseRegisters( pipe_reg );
+    m_warp[warp_id].dec_inst_in_pipeline();
+	  if (!is_smk_enabled)
+      warp_inst_complete(*pipe_reg);
+	  if (is_smk_enabled)
+		  warp_inst_complete_smk(*pipe_reg, k);
+	  //--------
+    /***********************************************/
     m_gpu->gpu_sim_insn_last_update_sid = m_sid;
     m_gpu->gpu_sim_insn_last_update = m_gpu->gpu_sim_cycle;
     m_last_inst_gpu_sim_cycle = m_gpu->gpu_sim_cycle;
@@ -1854,6 +2120,19 @@ mem_stage_stall_type ldst_unit::process_memory_access_queue(cache_t *cache,
       mf->get_addr(), mf,
       m_core->get_gpu()->gpu_sim_cycle + m_core->get_gpu()->gpu_tot_sim_cycle,
       events);
+
+    /*******************
+    * SMK changes --orig. auth: HIMASHU
+    * SMK tracking cache accesses
+    **/
+    //HIMANSHU
+    unsigned warpId = inst.warp_id();
+    if (status == HIT)
+	    m_core->inc_kernel_l1_cache_statistics(warpId, 0);
+    if (status == MISS)
+	    m_core->inc_kernel_l1_cache_statistics(warpId, 1);
+    //--------
+    /**************************************/
   return process_cache_access(cache, mf->get_addr(), inst, events, mf, status);
 }
 
@@ -2290,6 +2569,34 @@ void pipelined_simd_unit::cycle() {
     for (unsigned stage = 0; (stage + 1) < m_pipeline_depth; stage++)
       move_warp(m_pipeline_reg[stage], m_pipeline_reg[stage + 1]);
   }
+
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK tracking insts
+  * TODO: review implication of active_insts_in_pipeline check, newer than SMK
+  **/
+  //HIMANSHU
+  unsigned empty_stages = 0;
+  for (unsigned stage = 0; stage < m_pipeline_depth; stage ++){
+	  if (m_pipeline_reg[stage]->empty())
+		  empty_stages = empty_stages + 1;
+    }
+    gpgpu_sim *gpu = get_core()->get_gpu();
+    shader_core_ctx *core = get_core();
+    if (m_pipeline_reg[0]->op_pipe == SP__OP){
+	    gpu->m_empty_pipeline_stages[0] = gpu->m_empty_pipeline_stages[0] + 1;
+    	core->inc_empty_pipeline_stages(1, 0);
+    }
+    if (m_pipeline_reg[0]->op_pipe == SFU__OP){
+      gpu->m_empty_pipeline_stages[1] = gpu->m_empty_pipeline_stages[1] + 1;
+   	  core->inc_empty_pipeline_stages(1, 1);
+    }
+    if (m_pipeline_reg[0]->op_pipe == MEM__OP){
+      gpu->m_empty_pipeline_stages[2] = gpu->m_empty_pipeline_stages[2] + 1; 
+	    core->inc_empty_pipeline_stages(1, 2);
+    }
+    //--------
+  /*********************************************/
   if (!m_dispatch_reg->empty()) {
     if (!m_dispatch_reg->dispatch_delay()) {
       int start_stage =
@@ -2444,7 +2751,22 @@ void ldst_unit::writeback() {
         }
       }
       if (insn_completed) {
-        m_core->warp_inst_complete(m_next_wb);
+        /*******************
+        * SMK changes --orig. auth: HIMASHU
+        * SMK routing to appropriate completion version
+        * TODO: evaluate streamlining into single complete()
+        **/
+        //- m_core->warp_inst_complete(m_next_wb);
+        signed warp_id = m_next_wb.warp_id();
+        //HIMANSHU
+		    gpgpu_sim *gpu = m_core->get_gpu();
+        kernel_info_t *k = m_core->get_warp(warp_id).get_warp_kernel();
+        bool is_smk_enabled = gpu->get_config().smk_enabled();
+		    if (is_smk_enabled)
+          m_core->warp_inst_complete_smk(m_next_wb, k);
+		    if (!is_smk_enabled)
+			    m_core->warp_inst_complete(m_next_wb);
+		    //--------
       }
       m_next_wb.clear();
       m_last_inst_gpu_sim_cycle = m_core->get_gpu()->gpu_sim_cycle;
@@ -2666,7 +2988,23 @@ void ldst_unit::cycle() {
           }
         }
         if (!pending_requests) {
-          m_core->warp_inst_complete(*m_dispatch_reg);
+          /*******************
+          * SMK changes --orig. auth: HIMASHU
+          * SMK routing to appropriate completion version
+          * TODO: evaluate streamlining into single complete()
+          **/
+          //- m_core->warp_inst_complete(*m_dispatch_reg);
+          //HIMANSHU
+		      gpgpu_sim *gpu = m_core->get_gpu();
+		      signed warp_id = m_dispatch_reg->warp_id();
+          kernel_info_t *k = m_core->get_warp(warp_id).get_warp_kernel();
+          bool is_smk_enabled = gpu->get_config().smk_enabled();
+          if (is_smk_enabled)
+            m_core->warp_inst_complete_smk(*m_dispatch_reg, k);
+          if (!is_smk_enabled)
+            m_core->warp_inst_complete(*m_dispatch_reg);
+          //--------
+         /***********************************************************/
           m_scoreboard->releaseRegisters(m_dispatch_reg);
         }
         m_core->dec_inst_in_pipeline(warp_id);
@@ -2681,25 +3019,159 @@ void ldst_unit::cycle() {
   }
 }
 
+/*******************
+* SMK changes --orig. auth: HIMASHU
+* SMK rl code
+* Note: various commented changes elided: online models, zmq, evaluate RL
+**/
+//HIMANSHU - RL version of issue_block2core
+unsigned shader_core_ctx::issue_block2core_rl(std::vector<int> rl_alloc)
+{
+    unsigned num_blocks_issued = 0;
+    unsigned action_taken = 0;
+    std::vector<kernel_info_t *> gpu_scheduled_kernels = m_gpu->get_gpu_scheduled_kernels();
+    int num_gpu_scheduled = m_gpu->num_kernels_scheduled();
+
+    //int max_cta_0 = m_config->max_cta(*gpu_scheduled_kernels[0] , 1);
+    //int max_cta_1 = m_config->max_cta(*gpu_scheduled_kernels[1] , 1);
+
+    std::vector<int> ctas(num_gpu_scheduled, 0);
+    std::vector<int> ctas_to_allocate(num_gpu_scheduled, 0);
+    for (int i = 0; i < num_gpu_scheduled; i ++)
+        ctas[i] = get_n_active_cta_smk(gpu_scheduled_kernels[i]);
+
+    for (int j = 0; j < num_gpu_scheduled; j ++){
+        kernel_info_t *k = gpu_scheduled_kernels[j];
+
+        int allowed_cta = get_config()->allowed_ctas(gpu_scheduled_kernels, j, ctas);
+        int remaining_cta = rl_alloc[j] - ctas[j];
+
+        if (remaining_cta >= 0 && remaining_cta <= allowed_cta)
+            ctas_to_allocate[j] = remaining_cta;
+        else 
+            return -1;  // This means that the action is not possible
+
+        for (int i = 0; i < ctas_to_allocate[j]; i ++){
+            if ( k && !k->no_more_ctas_to_run() ){
+                add_kernel_multitasking(k);
+                issue_block2core(*k);
+                ctas[j] = ctas[j] + 1;
+                num_blocks_issued ++;
+            }
+        }
+    }
+
+    if (ctas_to_allocate[0] == 1 && ctas_to_allocate[1] == 0)
+        return 1;
+    if (ctas_to_allocate[0] == 0 && ctas_to_allocate[1] == 1)
+        return 2;
+    if (ctas_to_allocate[0] == 1 && ctas_to_allocate[1] == 1)
+        return 3;
+
+    return num_blocks_issued;
+}
+
+
+// HIMANSHU - Naive helper function for now. Generalize it later
+std::vector<int> shader_core_ctx::select_rl_action(std::vector<int> current_cta, int action) {
+
+    std::vector<int> next_cta(current_cta.begin(), current_cta.end());
+    bool rl_aggressive = m_gpu->get_config().get_rl_aggressive();
+
+    if (rl_aggressive == 0) { 
+        switch (action) {
+            case 1:
+                next_cta[0] = next_cta[0] + 1;
+                break;
+            case 2:
+                next_cta[1] = next_cta[1] + 1;
+                break;
+        }
+    }
+    if (rl_aggressive == 1) {
+        switch (action) {
+            case 1:
+                next_cta[0] = next_cta[0] + 1;
+                break;
+            case 2:
+                next_cta[1] = next_cta[1] + 1;
+                break;
+            case 3:
+                next_cta[0] = next_cta[0] + 1;
+                next_cta[1] = next_cta[1] + 1;
+                break;
+        }
+    }
+    return next_cta;
+
+}
+
+/*********************************************************/
+
+
+
+
 void shader_core_ctx::register_cta_thread_exit(unsigned cta_num,
                                                kernel_info_t *kernel) {
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK cta close code
+  * TODO: review concurrent shader changes present
+  **/
+  //HIMANSHU
+   bool is_smk_enabled = m_gpu->get_config().smk_enabled();
+   //--------
+   /************************************/
   assert(m_cta_status[cta_num] > 0);
   m_cta_status[cta_num]--;
   if (!m_cta_status[cta_num]) {
     // Increment the completed CTAs
     m_stats->ctas_completed++;
     m_gpu->inc_completed_cta();
-    m_n_active_cta--;
+    //HIMANSHU*********************************nextline
+    if (!is_smk_enabled)
+      m_n_active_cta--;
+    //HIMANSHU*********************************next 3 lines
+    if (is_smk_enabled)
+	    decrement_n_active_cta_smk(kernel);
+      /************************************************/
     m_barriers.deallocate_barrier(cta_num);
     shader_CTA_count_unlog(m_sid, 1);
 
+    /*******************
+    * SMK changes --orig. auth: HIMASHU
+    * SMK cta close code
+    * TODO: review concurrent shader changes present
+    **/
+    //HIMANSHU
+    unsigned temp_cta = is_smk_enabled ? get_n_active_cta_smk(kernel) : m_n_active_cta;
+    //--------
+    /************************************************/
     SHADER_DPRINTF(
         LIVENESS,
         "GPGPU-Sim uArch: Finished CTA #%u (%lld,%lld), %u CTAs running\n",
         cta_num, m_gpu->gpu_sim_cycle, m_gpu->gpu_tot_sim_cycle,
         m_n_active_cta);
-
-    if (m_n_active_cta == 0) {
+    /*******************
+    * SMK changes --orig. auth: HIMASHU
+    * SMK cta print
+    * TODO: review change in print routines
+    **/
+    //HIMANSHU
+    if (is_smk_enabled){
+        std::vector<kernel_info_t *> shader_kernels = get_kernels();
+        //printf("GPGPU-Sim uArch: Shader %d CTA status after RL action ....\n", m_sid);
+        std::vector<int> current_cta(shader_kernels.size());
+        for (int i = 0; i < shader_kernels.size(); i ++){
+            current_cta[i] = get_n_active_cta_smk(shader_kernels[i]);
+            //printf("Kernel: %s, CTAs: %d\n", shader_kernels[i]->name().c_str(), current_cta[i]);
+            std::cout << "Kernel: " << shader_kernels[i]->name() << ", CTAs: " << current_cta[i] << std::endl;
+        }
+    }
+    //--------
+    if( temp_cta == 0 ) {
+//    if (m_n_active_cta == 0) {
+  /*******************************************************/
       SHADER_DPRINTF(
           LIVENESS,
           "GPGPU-Sim uArch: Empty (last released kernel %u \'%s\').\n",
@@ -3197,7 +3669,80 @@ void shader_core_ctx::display_pipeline(FILE *fout, int print_mem,
   }
 }
 
-unsigned int shader_core_config::max_cta(const kernel_info_t &k) const {
+/*******************
+* SMK changes --orig. auth: HIMASHU
+* SMK cta function
+**/
+//HIMANSHU - Function to determine if a CTA can be executed for the indexed kernel on the shader
+unsigned int shader_core_config::allowed_ctas( std::vector<kernel_info_t *> kernel_pointers, unsigned index, std::vector<int> ctas ) 
+const {
+
+	unsigned sum_threads = 0;
+	unsigned sum_shmem = 0;
+	unsigned sum_regs = 0;
+	int sum_ctas = 0;
+
+	for (int i = 0; i < kernel_pointers.size(); i ++) {
+		kernel_info_t * k = kernel_pointers[i];
+		if (k != 0x0){
+			unsigned threads_per_cta  = k->threads_per_cta();
+   			const class function_info *kernel = k->entry();
+  			unsigned int padded_cta_size = threads_per_cta;
+   			if (padded_cta_size%warp_size)
+      				padded_cta_size = ((padded_cta_size/warp_size)+1)*(warp_size);
+
+			sum_threads = sum_threads + (ctas[i] * padded_cta_size);
+   			const struct gpgpu_ptx_sim_kernel_info *kernel_info = ptx_sim_kernel_info(kernel);
+			sum_shmem = sum_shmem + (ctas[i] * kernel_info->smem); 
+			sum_regs = sum_regs + (ctas[i] * padded_cta_size * ((kernel_info->regs+3)&~3));
+			sum_ctas = sum_ctas + ctas[i];
+		}
+	}
+
+	kernel_info_t * k = kernel_pointers[index];
+       	unsigned threads_per_cta  = k->threads_per_cta();
+       	const class function_info *kernel = k->entry();
+        unsigned int padded_cta_size = threads_per_cta;
+        if (padded_cta_size%warp_size)
+        	padded_cta_size = ((padded_cta_size/warp_size)+1)*(warp_size);
+
+	//Limit by n_threads/shader
+   	unsigned int result_thread = (n_thread_per_shader - sum_threads) / padded_cta_size;
+
+   	const struct gpgpu_ptx_sim_kernel_info *kernel_info = ptx_sim_kernel_info(kernel);
+
+   	//Limit by shmem/shader
+   	unsigned int result_shmem = (unsigned)-1;
+   	if (kernel_info->smem > 0)
+      	result_shmem = (gpgpu_shmem_size - sum_shmem) / kernel_info->smem;
+
+   	//Limit by register count, rounded up to multiple of 4.
+   	unsigned int result_regs = (unsigned)-1;
+   	if (kernel_info->regs > 0)
+      	result_regs = (gpgpu_shader_registers - sum_regs) / (padded_cta_size * ((kernel_info->regs+3)&~3));
+
+   	//Limit by CTA
+   	unsigned int result_cta = max_cta_per_core - sum_ctas;
+
+   	unsigned result = result_thread;
+   	result = gs_min2(result, result_shmem);
+   	result = gs_min2(result, result_regs);
+   	result = gs_min2(result, result_cta);
+
+	return result;
+
+}
+/************************************************************/
+
+
+/*******************
+* SMK changes --orig. auth: HIMASHU
+* SMK standard cta function modified with addl arg for # kernels
+* TODO: review wrt concurrent changes and what logic they may use
+**/
+//- unsigned int shader_core_config::max_cta(const kernel_info_t &k) const {
+unsigned int shader_core_config::max_cta(const kernel_info_t &k, unsigned num_kernels) const {
+
   unsigned threads_per_cta = k.threads_per_cta();
   const class function_info *kernel = k.entry();
   unsigned int padded_cta_size = threads_per_cta;
@@ -3205,23 +3750,40 @@ unsigned int shader_core_config::max_cta(const kernel_info_t &k) const {
     padded_cta_size = ((padded_cta_size / warp_size) + 1) * (warp_size);
 
   // Limit by n_threads/shader
-  unsigned int result_thread = n_thread_per_shader / padded_cta_size;
-
+  /*** SMK next line changed */
+  //- unsigned int result_thread = n_thread_per_shader / padded_cta_size;
+  unsigned int result_thread = n_thread_per_shader / (padded_cta_size*num_kernels);
+  /**********************************/
   const struct gpgpu_ptx_sim_info *kernel_info = ptx_sim_kernel_info(kernel);
 
   // Limit by shmem/shader
   unsigned int result_shmem = (unsigned)-1;
-  if (kernel_info->smem > 0)
-    result_shmem = gpgpu_shmem_size / kernel_info->smem;
+  /*** SMK next 2 lines changed */
+  //- if (kernel_info->smem > 0)
+    //- result_shmem = gpgpu_shmem_size / kernel_info->smem;
+  if (kernel_info->smem > 0){
+     result_shmem = gpgpu_shmem_size / (kernel_info->smem*num_kernels);
+  }
+  /**********************************************/
 
   // Limit by register count, rounded up to multiple of 4.
   unsigned int result_regs = (unsigned)-1;
-  if (kernel_info->regs > 0)
+  /*** SMK next 3 lines changed */
+  //- if (kernel_info->regs > 0)
+  //-  result_regs = gpgpu_shader_registers /
+  //-                (padded_cta_size * ((kernel_info->regs + 3) & ~3));
+  if (kernel_info->regs > 0){
     result_regs = gpgpu_shader_registers /
-                  (padded_cta_size * ((kernel_info->regs + 3) & ~3));
+                  (num_kernels * padded_cta_size * ((kernel_info->regs + 3) & ~3));
+  }
+  /***************************************/
+
 
   // Limit by CTA
-  unsigned int result_cta = max_cta_per_core;
+   /*** SMK next line changed */
+  //- unsigned int result_cta = max_cta_per_core;
+  unsigned int result_cta = max_cta_per_core/num_kernels;
+  /***********************/
 
   unsigned result = result_thread;
   result = gs_min2(result, result_shmem);
@@ -3229,7 +3791,13 @@ unsigned int shader_core_config::max_cta(const kernel_info_t &k) const {
   result = gs_min2(result, result_cta);
 
   static const struct gpgpu_ptx_sim_info *last_kinfo = NULL;
-  if (last_kinfo !=
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK perf fix
+  * TODO: review if this disabling of print is still needed
+  **/
+  //HIMANSHU - Slows down the simulation process in case of spatial multitasking
+  /*if (last_kinfo !=
       kernel_info) {  // Only print out stats if kernel_info struct changes
     last_kinfo = kernel_info;
     printf("GPGPU-Sim uArch: CTA/core = %u, limited by:", result);
@@ -3238,7 +3806,8 @@ unsigned int shader_core_config::max_cta(const kernel_info_t &k) const {
     if (result == result_regs) printf(" regs");
     if (result == result_cta) printf(" cta_limit");
     printf("\n");
-  }
+  }*/
+  /****************************************/
 
   // gpu_max_cta_per_shader is limited by number of CTAs if not enough to keep
   // all cores busy
@@ -3355,6 +3924,15 @@ void shader_core_config::set_pipeline_latency() {
 
 void shader_core_ctx::cycle() {
   if (!isactive() && get_not_completed() == 0) return;
+
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK cycle count
+  **/
+  //HIMANSHU
+  m_shader_sim_cycles ++;
+  //--------
+  /**********************/
 
   m_stats->shader_cycles[m_sid]++;
   writeback();
@@ -3680,7 +4258,178 @@ bool shader_core_ctx::warp_waiting_at_mem_barrier(unsigned warp_id) {
   return true;
 }
 
+/*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK functions
+  **/
+ //HIMANSHU
+void shader_core_ctx::set_cta_count_to_zero_smk()
+{
+	 bool is_smk_enabled = m_gpu->get_config().smk_enabled();
+         unsigned nkernels = m_gpu->num_kernels_scheduled();
+	 //HIMANSHU - Hardcoded, change later
+	 nkernels = 14;
+	 //--------
+         for (unsigned i = 0; i < nkernels; i ++)
+         	m_n_active_cta_smk.push_back(0);
+
+}
+
+void shader_core_ctx::set_step_size_to_one_acsmk()
+{
+         bool is_smk_enabled = m_gpu->get_config().smk_enabled();
+         unsigned nkernels = m_gpu->num_kernels_scheduled();
+         //HIMANSHU - Hardcoded, change later
+         nkernels = 14;
+         //--------
+         for (unsigned i = 0; i < nkernels; i ++)
+                kernel_step_size_acsmk.push_back(1);
+
+}
+
+void shader_core_ctx::init_last_exe_kernel_func()
+{
+         for (unsigned i = 0; i < m_num_function_units; i ++){
+                last_executed_kernel_fu.push_back(0x0);
+		m_fu_prev_dispatch_reg.push_back(0x0);
+		m_prev_ready_reg.push_back(0x0);
+	 }
+
+}
+
+void shader_core_ctx::init_kernel_statistics()
+{
+         bool is_smk_enabled = m_gpu->get_config().smk_enabled();
+         unsigned nkernels = m_gpu->num_kernels_scheduled();
+	 std::vector<kernel_info_t *> gpu_kernels = m_gpu->get_gpu_scheduled_kernels();
+         std::vector<int> func_units;
+	 std::vector<int> hit_miss;
+
+	 for (unsigned i = 0; i < m_num_function_units; i ++)
+	 	func_units.push_back(0);
+
+	 for (unsigned i = 0; i < 2; i ++)
+		hit_miss.push_back(0);
+
+         for (unsigned i = 0; i < nkernels; i ++){
+	 	kernel_inst_wait_fu[gpu_kernels[i]] = func_units;          
+		reservation_fails[gpu_kernels[i]] = 0;
+		kernel_inst_type[gpu_kernels[i]] = func_units;
+		kernel_l1_cache_stats[gpu_kernels[i]] = hit_miss;
+		m_cycles_data_hazard[gpu_kernels[i]] = 0;
+		m_cycles_data_hazard_prev[gpu_kernels[i]] = 0;
+		m_cycles_control_hazard[gpu_kernels[i]] = 0;
+		m_cycles_control_hazard_prev[gpu_kernels[i]] = 0;
+	 }     
+
+	 for (unsigned i = 0; i < 3; i ++) {
+		m_empty_pipeline_stages.push_back(0); 
+		m_empty_pipeline_stages_prev.push_back(0);
+	 }
+
+}
+
+std::map<kernel_info_t *, std::vector<int>> shader_core_ctx::collect_kernel_statistics()
+{
+	std::map<kernel_info_t *, std::vector<int>> temp = kernel_inst_wait_fu;
+	unsigned nkernels = m_gpu->num_kernels_scheduled();
+        std::vector<kernel_info_t *> gpu_kernels = m_gpu->get_gpu_scheduled_kernels();
+
+	//reinit
+	for (int j = 0; j < nkernels; j ++){
+		for (int i = 0; i < m_num_function_units; i ++){
+			kernel_inst_wait_fu[gpu_kernels[j]][i] = 0;
+		}
+	}
+
+	return temp;
+}
+
+std::map<kernel_info_t *, std::vector<int>> shader_core_ctx::collect_kernel_inst_type_statistics()
+{
+        std::map<kernel_info_t *, std::vector<int>> temp = kernel_inst_type;
+        unsigned nkernels = m_gpu->num_kernels_scheduled();
+        std::vector<kernel_info_t *> gpu_kernels = m_gpu->get_gpu_scheduled_kernels();
+
+        //reinit
+        /*for (int j = 0; j < nkernels; j ++){
+                for (int i = 0; i < m_num_function_units; i ++){
+                        kernel_inst_type[gpu_kernels[j]][i] = 0;
+                }
+        }*/
+
+        return temp;
+}
+
+std::map<kernel_info_t *, int> shader_core_ctx::collect_reservation_fails()
+{
+        std::map<kernel_info_t *, int> temp = reservation_fails;
+        unsigned nkernels = m_gpu->num_kernels_scheduled();
+        std::vector<kernel_info_t *> gpu_kernels = m_gpu->get_gpu_scheduled_kernels();
+
+        //reinit
+        for (int j = 0; j < nkernels; j ++){
+                reservation_fails[gpu_kernels[j]] = 0;
+        }
+
+        return temp;
+}
+
+std::map<kernel_info_t *, std::vector<int>> shader_core_ctx::collect_kernel_l1_cache_statistics()
+{
+        std::map<kernel_info_t *, std::vector<int>> temp = kernel_l1_cache_stats;
+        unsigned nkernels = m_gpu->num_kernels_scheduled();
+        std::vector<kernel_info_t *> gpu_kernels = m_gpu->get_gpu_scheduled_kernels();
+
+        //reinit
+        for (int j = 0; j < nkernels; j ++){
+                for (int i = 0; i < 2; i ++){
+                        kernel_l1_cache_stats[gpu_kernels[j]][i] = 0;
+                }
+        }
+
+        return temp;
+}
+
+void shader_core_ctx::inc_kernel_l1_cache_statistics(int warp_id, int HIT_MISS) 
+{
+	kernel_info_t *k = m_warp[warp_id].get_warp_kernel();
+	kernel_l1_cache_stats[k][HIT_MISS] = kernel_l1_cache_stats[k][HIT_MISS] + 1;
+}
+
+//--------
+
+void shader_core_ctx::allocate_cta_regions_smk()
+{
+	std::vector<unsigned>::iterator it_cta = kernel_max_cta_per_shader_smk.begin();
+	unsigned max_cta = *it_cta;
+	kernel_cta_region_smk[0] = 0;
+	it_cta++;
+	unsigned count = 1;
+	while (it_cta != kernel_max_cta_per_shader_smk.end())
+	{
+		kernel_cta_region_smk[count] = kernel_cta_region_smk[count-1] + max_cta;
+		max_cta = kernel_max_cta_per_shader_smk[count];
+		count++;
+		it_cta++;
+	}
+
+}
+//--------
+/***************************************/
+
 void shader_core_ctx::set_max_cta(const kernel_info_t &kernel) {
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK modification
+  **/
+  //HIMANSHU
+  bool is_smk_enabled = m_gpu->get_config().smk_enabled();
+  unsigned nkernels = m_gpu->num_kernels_scheduled();
+  if (nkernels == 0)
+	  nkernels = 1;
+  //--------
+  /**************************************/
   // calculate the max cta count and cta size for local memory address mapping
   kernel_max_cta_per_shader = m_config->max_cta(kernel);
   unsigned int gpu_cta_size = kernel.threads_per_cta();
@@ -3688,6 +4437,21 @@ void shader_core_ctx::set_max_cta(const kernel_info_t &kernel) {
       (gpu_cta_size % m_config->warp_size)
           ? m_config->warp_size * ((gpu_cta_size / m_config->warp_size) + 1)
           : gpu_cta_size;
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK modification
+  **/
+  //HIMANSHU
+  if (is_smk_enabled) {
+	  kernel_order_shader.push_back(&kernel);
+	  kernel_max_cta_per_shader_smk.push_back(m_config->max_cta(kernel, nkernels)-1);
+	  unsigned int gpu_cta_size = kernel.threads_per_cta();
+	  kernel_padded_threads_per_cta_smk.push_back((gpu_cta_size%m_config->warp_size) ?
+		m_config->warp_size*((gpu_cta_size/m_config->warp_size)+1) :
+		gpu_cta_size);
+  }
+  //-------- 
+  /***********************************/        
 }
 
 void shader_core_ctx::decrement_atomic_count(unsigned wid, unsigned n) {
@@ -4142,12 +4906,26 @@ void simt_core_cluster::core_cycle() {
 }
 
 void simt_core_cluster::reinit() {
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK modification
+  * TODO: hard coded fix?
+  **/
+  //HIMANSHU
+  m_num_function_units_core = 4; //Hardcoded, fix it!
+  /***********************************/
   for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; i++)
     m_core[i]->reinit(0, m_config->n_thread_per_shader, true);
 }
 
 unsigned simt_core_cluster::max_cta(const kernel_info_t &kernel) {
-  return m_config->n_simt_cores_per_cluster * m_config->max_cta(kernel);
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK modification
+  **/
+  //return m_config->n_simt_cores_per_cluster * m_config->max_cta(kernel);
+  return m_config->n_simt_cores_per_cluster * m_config->max_cta(kernel,1);
+  /****************************/
 }
 
 unsigned simt_core_cluster::get_not_completed() const {
@@ -4188,31 +4966,160 @@ unsigned simt_core_cluster::get_n_active_sms() const {
   return n;
 }
 
+/*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK cluster functions
+  **/
+ //HIMANSHU
+void simt_core_cluster::init_kernel_statistics() 
+{
+	for( unsigned i=0; i < m_config->n_simt_cores_per_cluster; i++ ) {
+        	unsigned core = i % m_config->n_simt_cores_per_cluster;
+                m_core[core]->init_kernel_statistics();
+	}
+
+}
+
+std::map<kernel_info_t *, std::vector<int>> simt_core_cluster::collect_kernel_statistics()
+{
+	std::vector<kernel_info_t *> gpu_scheduled_kernels = m_gpu->get_gpu_scheduled_kernels();
+    	int num_gpu_scheduled = m_gpu->num_kernels_scheduled();
+
+	std::map<kernel_info_t *, std::vector<int>> kernel_wait_inst_cluster;
+	std::vector<int> inst(m_num_function_units_core, 0);
+	for (int i = 0; i < num_gpu_scheduled; i ++)
+		kernel_wait_inst_cluster[gpu_scheduled_kernels[i]] = inst;
+
+	for( unsigned i=0; i < m_config->n_simt_cores_per_cluster; i++ ) {
+                unsigned core = i % m_config->n_simt_cores_per_cluster;
+                std::map<kernel_info_t *, std::vector<int>> wait_inst = m_core[core]->collect_kernel_statistics();
+		for (int j = 0; j < num_gpu_scheduled; j ++){
+			kernel_info_t *k = gpu_scheduled_kernels[j];
+			for (int m = 0; m < m_num_function_units_core; m ++)
+				kernel_wait_inst_cluster[k][m] = kernel_wait_inst_cluster[k][m] + wait_inst[k][m];
+		}
+        }
+
+	return kernel_wait_inst_cluster;
+
+}
+
+std::map<kernel_info_t *, std::vector<int>> simt_core_cluster::collect_kernel_inst_type_statistics()
+{
+        std::vector<kernel_info_t *> gpu_scheduled_kernels = m_gpu->get_gpu_scheduled_kernels();
+        int num_gpu_scheduled = m_gpu->num_kernels_scheduled();
+
+        std::map<kernel_info_t *, std::vector<int>> kernel_inst_type_cluster;
+        std::vector<int> inst(m_num_function_units_core, 0);
+        for (int i = 0; i < num_gpu_scheduled; i ++)
+                kernel_inst_type_cluster[gpu_scheduled_kernels[i]] = inst;
+
+        for( unsigned i=0; i < m_config->n_simt_cores_per_cluster; i++ ) {
+                unsigned core = i % m_config->n_simt_cores_per_cluster;
+                std::map<kernel_info_t *, std::vector<int>> inst_type = m_core[core]->collect_kernel_inst_type_statistics();
+                for (int j = 0; j < num_gpu_scheduled; j ++){
+                        kernel_info_t *k = gpu_scheduled_kernels[j];
+                        for (int m = 0; m < m_num_function_units_core; m ++)
+                                kernel_inst_type_cluster[k][m] = kernel_inst_type_cluster[k][m] + inst_type[k][m];
+                }
+        }
+
+        return kernel_inst_type_cluster;
+
+}
+
+std::map<kernel_info_t *, int> simt_core_cluster::collect_reservation_fails()
+{
+	std::vector<kernel_info_t *> gpu_scheduled_kernels = m_gpu->get_gpu_scheduled_kernels();
+        int num_gpu_scheduled = m_gpu->num_kernels_scheduled();
+
+	std::map<kernel_info_t *, int> cluster_fails;
+	for (int i = 0; i < num_gpu_scheduled; i ++)
+                cluster_fails[gpu_scheduled_kernels[i]] = 0;
+
+	for( unsigned i=0; i < m_config->n_simt_cores_per_cluster; i++ ) {
+                unsigned core = i % m_config->n_simt_cores_per_cluster;
+                std::map<kernel_info_t *, int> core_fails = m_core[core]->collect_reservation_fails();
+                for (int j = 0; j < num_gpu_scheduled; j ++){
+                        kernel_info_t *k = gpu_scheduled_kernels[j];
+                        cluster_fails[k] = cluster_fails[k] + core_fails[k];
+                }
+        }
+
+	return cluster_fails;
+
+}
+
+std::map<kernel_info_t *, std::vector<int>> simt_core_cluster::collect_kernel_l1_cache_statistics()
+{
+        std::vector<kernel_info_t *> gpu_scheduled_kernels = m_gpu->get_gpu_scheduled_kernels();
+        int num_gpu_scheduled = m_gpu->num_kernels_scheduled();
+
+        std::map<kernel_info_t *, std::vector<int>> kernel_l1_cache_stats_cluster;
+        std::vector<int> hit_miss(2, 0);
+        for (int i = 0; i < num_gpu_scheduled; i ++)
+                kernel_l1_cache_stats_cluster[gpu_scheduled_kernels[i]] = hit_miss;
+
+        for( unsigned i=0; i < m_config->n_simt_cores_per_cluster; i++ ) {
+                unsigned core = i % m_config->n_simt_cores_per_cluster;
+                std::map<kernel_info_t *, std::vector<int>> l1_cache_stats = m_core[core]->collect_kernel_l1_cache_statistics();
+                for (int j = 0; j < num_gpu_scheduled; j ++){
+                        kernel_info_t *k = gpu_scheduled_kernels[j];
+                        for (int m = 0; m < 2; m ++)
+                                kernel_l1_cache_stats_cluster[k][m] = kernel_l1_cache_stats_cluster[k][m] + l1_cache_stats[k][m];
+                }
+        }
+
+        return kernel_l1_cache_stats_cluster;
+
+}
+
+//--------
+/************************************************/
+
 unsigned simt_core_cluster::issue_block2core() {
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * get total block slots
+  **/
+  //HIMANSHU
+  bool is_spatial_enabled = m_gpu->get_config().spatial_enabled();
+  bool is_smk_enabled = m_gpu->get_config().smk_enabled();
+  std::vector<kernel_info_t *> gpu_scheduled_kernels = m_gpu->get_gpu_scheduled_kernels();
+  int num_gpu_scheduled = m_gpu->num_kernels_scheduled();
+  unsigned max_total_cta_smk = 0;
+  for (int i = 0; i < num_gpu_scheduled; i ++) {
+  	std::vector<kernel_info_t *>::iterator it = gpu_scheduled_kernels.begin() + i;
+	  kernel_info_t *k_next = *it;
+	  max_total_cta_smk = max_total_cta_smk + m_config->max_cta(*k_next, num_gpu_scheduled);
+  }
+  //--------
+  /****************************/
   unsigned num_blocks_issued = 0;
-  for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; i++) {
-    unsigned core =
+  if (!is_smk_enabled) {
+    for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; i++) {
+      unsigned core = 
         (i + m_cta_issue_next_core + 1) % m_config->n_simt_cores_per_cluster;
 
-    kernel_info_t *kernel;
-    // Jin: fetch kernel according to concurrent kernel setting
-    if (m_config->gpgpu_concurrent_kernel_sm) {  // concurrent kernel on sm
-      // always select latest issued kernel
-      kernel_info_t *k = m_gpu->select_kernel();
-      kernel = k;
-    } else {
-      // first select core kernel, if no more cta, get a new kernel
-      // only when core completes
-      kernel = m_core[core]->get_kernel();
-      if (!m_gpu->kernel_more_cta_left(kernel)) {
-        // wait till current kernel finishes
-        if (m_core[core]->get_not_completed() == 0) {
-          kernel_info_t *k = m_gpu->select_kernel();
-          if (k) m_core[core]->set_kernel(k);
-          kernel = k;
+      kernel_info_t *kernel;
+      // Jin: fetch kernel according to concurrent kernel setting
+      if (m_config->gpgpu_concurrent_kernel_sm) {  // concurrent kernel on sm
+        // always select latest issued kernel
+        kernel_info_t *k = m_gpu->select_kernel();
+        kernel = k;
+      } else {
+        // first select core kernel, if no more cta, get a new kernel
+        // only when core completes
+        kernel = m_core[core]->get_kernel();
+        if (!m_gpu->kernel_more_cta_left(kernel)) {
+          // wait till current kernel finishes
+          if (m_core[core]->get_not_completed() == 0) {
+            kernel_info_t *k = m_gpu->select_kernel();
+            if (k) m_core[core]->set_kernel(k);
+            kernel = k;
+          }
         }
       }
-    }
 
     if (m_gpu->kernel_more_cta_left(kernel) &&
         //            (m_core[core]->get_n_active_cta() <
@@ -4224,8 +5131,248 @@ unsigned simt_core_cluster::issue_block2core() {
       break;
     }
   }
+  }
+
+/*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK enabled issuance
+  * TODO: changes made to original issue logic
+  **/
+  //HIMANSHU
+  if (is_smk_enabled) {
+	  for ( unsigned i=0; i < m_config->n_simt_cores_per_cluster; i++ ) {
+		  unsigned core = (i+m_cta_issue_next_core+1)%m_config->n_simt_cores_per_cluster;
+		  kernel_info_t *k_next;
+		  if ( m_core[core]->get_not_completed() == 0 ) {
+			  if( m_core[core]->get_kernels().empty() ) {
+				  kernel_info_t *k = m_gpu->select_kernel();
+				  if( k ) {
+					  k_next = k;
+					  m_core[core]->add_kernel_multitasking(k);
+					  m_core[core]->inc_running_kernel_index();
+					  std::vector<kernel_info_t *>::iterator index_itr = std::find(gpu_scheduled_kernels.begin(), gpu_scheduled_kernels.end(), k_next);
+					  int index_gpu_kernel = std::distance(gpu_scheduled_kernels.begin(), index_itr);
+					  if( k_next && !k_next->no_more_ctas_to_run() && (m_core[core]->get_n_active_cta_smk(k_next) < m_gpu->get_max_cta_smk(index_gpu_kernel)) ) {
+            	m_core[core]->issue_block2core(*k_next);
+            	num_blocks_issued++;
+            	m_cta_issue_next_core=core;
+            	break;
+            }
+				  }
+			  }
+		  }
+
+		  if( !m_core[core]->get_kernels().empty() ) {
+			  std::vector<kernel_info_t *> core_running_kernels = m_core[core]->get_kernels();
+			  int num_core_scheduled = core_running_kernels.size();
+			  if (num_core_scheduled < num_gpu_scheduled) {
+				  for (int i = 0; i < num_gpu_scheduled; i ++) {
+					  std::vector<kernel_info_t *>::iterator it = gpu_scheduled_kernels.begin() + i;
+					  if (std::find(core_running_kernels.begin(), core_running_kernels.end(), *it) == core_running_kernels.end()) {
+						  k_next = *it;
+						  if( k_next && !k_next->no_more_ctas_to_run() && (m_core[core]->get_n_active_cta_smk(k_next) < m_gpu->get_max_cta_smk(i)) ) {
+                m_core[core]->add_kernel_multitasking(k_next);
+							  m_core[core]->inc_running_kernel_index();
+							  m_core[core]->issue_block2core(*k_next);
+                num_blocks_issued++;
+                m_cta_issue_next_core=core;
+                break;
+              }
+					  }
+				  }
+			  }
+			  if (num_core_scheduled == num_gpu_scheduled) {
+				  int index = m_core[core]->inc_running_kernel_index();
+				  std::vector<kernel_info_t *>::iterator it = core_running_kernels.begin() + index;
+				  k_next = *it;
+				  std::vector<kernel_info_t *>::iterator index_itr = std::find(gpu_scheduled_kernels.begin(), gpu_scheduled_kernels.end(), k_next);
+          int index_gpu_kernel = std::distance(gpu_scheduled_kernels.begin(), index_itr);
+				  if( k_next && !k_next->no_more_ctas_to_run() && (m_core[core]->get_n_active_cta_smk(k_next) < m_gpu->get_max_cta_smk(index_gpu_kernel)) ) {
+           	m_core[core]->issue_block2core(*k_next);
+            num_blocks_issued++;
+            m_cta_issue_next_core=core;
+            break;
+          }
+		    }
+	    }
+ 	  }
+  }
+  /**********************************************/
   return num_blocks_issued;
 }
+
+
+/*******************
+* SMK changes --orig. auth: HIMASHU
+* SMK issue helpers
+**/
+//HIMANSHU - Helper function for ACSMK.
+unsigned simt_core_cluster::issue_block2core_step_size(unsigned core, kernel_info_t *k, unsigned allowed_cta, std::vector<kernel_info_t *> m_running_kernels){
+
+	unsigned step_size = m_core[core]->get_step_size_acsmk(m_running_kernels, k);
+	unsigned num_issued = 0;
+	if (step_size <= allowed_cta) {	
+		for (num_issued = 0; num_issued < step_size; num_issued ++) {
+			m_core[core]->issue_block2core(*k);
+		}
+		if (step_size == 8)
+			 m_core[core]->set_step_size_acsmk(m_running_kernels, k, 1);
+		if (step_size < 8)
+			 m_core[core]->set_step_size_acsmk(m_running_kernels, k, (step_size * 2));
+	}
+	else {
+		if (step_size >= 2){
+			step_size = step_size / 2;
+			m_core[core]->set_step_size_acsmk(m_running_kernels, k, step_size);
+		}
+	}
+	return num_issued;
+}
+
+//HIMANSHU - Schedule kernel_id on core_id
+unsigned simt_core_cluster::issue_block2core_coordinate_descent(unsigned core, unsigned kernel_id)
+{
+    unsigned num_blocks_issued = 0;
+    std::vector<kernel_info_t *> gpu_scheduled_kernels = m_gpu->get_gpu_scheduled_kernels();
+    int num_gpu_scheduled = m_gpu->num_kernels_scheduled();
+
+    std::vector<int> ctas(num_gpu_scheduled, 0);
+    for (int i = 0; i < num_gpu_scheduled; i ++)
+	ctas[i] = m_core[core]->get_n_active_cta_smk(gpu_scheduled_kernels[i]);
+
+    //shader_core_ctx *c = m_core[core]; 
+    //const shader_core_config * shd_config = c->get_config(); 
+    unsigned int allowed_cta_k = m_core[core]->get_config()->allowed_ctas(gpu_scheduled_kernels, kernel_id, ctas);
+
+    kernel_info_t *k_next;
+    if ( m_core[core]->get_not_completed() == 0 ) {
+    	if( m_core[core]->get_kernels().empty() ) {
+        	kernel_info_t *k = gpu_scheduled_kernels[kernel_id];
+                if( k ) {
+                	k_next = k;
+                        m_core[core]->add_kernel_multitasking(k);
+
+                        if( k_next && !k_next->no_more_ctas_to_run() && (allowed_cta_k > 0) ) {
+                        	//m_core[core]->issue_block2core(*k_next);
+                               	//num_blocks_issued++;
+				num_blocks_issued = num_blocks_issued + issue_block2core_step_size(core, k_next, allowed_cta_k, gpu_scheduled_kernels);
+                               	m_cta_issue_next_core=core;
+                         }
+
+             	}
+     	}
+    }
+
+    if( !m_core[core]->get_kernels().empty() ) {
+    	std::vector<kernel_info_t *> core_running_kernels = m_core[core]->get_kernels();
+        int num_core_scheduled = core_running_kernels.size();
+        if (num_core_scheduled < num_gpu_scheduled) {
+                std::vector<kernel_info_t *>::iterator it = gpu_scheduled_kernels.begin() + kernel_id;
+                if (std::find(core_running_kernels.begin(), core_running_kernels.end(), *it) == core_running_kernels.end()) {
+                	k_next = gpu_scheduled_kernels[kernel_id];
+                       	if( k_next && !k_next->no_more_ctas_to_run() && (allowed_cta_k > 0) ) {
+                            	m_core[core]->add_kernel_multitasking(k_next);
+                                //m_core[core]->issue_block2core(*k_next);
+                                //num_blocks_issued++;
+				num_blocks_issued = num_blocks_issued + issue_block2core_step_size(core, k_next, allowed_cta_k, gpu_scheduled_kernels);
+                                m_cta_issue_next_core=core;
+                     	}
+
+                }
+
+     	}
+
+
+       	if (num_core_scheduled == num_gpu_scheduled) {
+
+       		k_next = gpu_scheduled_kernels[kernel_id];
+           	if( k_next && !k_next->no_more_ctas_to_run() && (allowed_cta_k > 0) ) {
+                	//m_core[core]->issue_block2core(*k_next);
+                    	//num_blocks_issued++;
+			num_blocks_issued = num_blocks_issued + issue_block2core_step_size(core, k_next, allowed_cta_k, gpu_scheduled_kernels);
+                	m_cta_issue_next_core=core;
+           	}
+	}
+    }
+
+    return num_blocks_issued;
+}
+
+
+//HIMANSHU - Schedule kernel_id on core_id with max CTA max_alloc
+unsigned simt_core_cluster::issue_block2core_static(std::vector<unsigned> static_alloc)
+{
+    unsigned num_blocks_issued = 0;
+    std::vector<kernel_info_t *> gpu_scheduled_kernels = m_gpu->get_gpu_scheduled_kernels();
+    int num_gpu_scheduled = m_gpu->num_kernels_scheduled();
+
+    int max_cta_0 = m_config->max_cta(*gpu_scheduled_kernels[0] , 1);
+    int max_cta_1 = m_config->max_cta(*gpu_scheduled_kernels[1] , 1);
+    //printf("Max number of CTAs for kernel 1: %d\n", max_cta_0);
+    //printf("Max number of CTAs for kernel 2: %d\n", max_cta_1);
+
+    for( unsigned core_index=0; core_index < m_config->n_simt_cores_per_cluster; core_index++ ) {
+    	unsigned core = core_index % m_config->n_simt_cores_per_cluster;
+
+    	std::vector<int> ctas(num_gpu_scheduled, 0);
+    	for (int i = 0; i < num_gpu_scheduled; i ++)
+		ctas[i] = m_core[core]->get_n_active_cta_smk(gpu_scheduled_kernels[i]);
+
+	for (int j = 0; j < num_gpu_scheduled; j ++){
+        	kernel_info_t *k = gpu_scheduled_kernels[j];
+
+                int remaining_cta = static_alloc[j] - ctas[j];
+                if( k && !k->no_more_ctas_to_run() ) {
+                	for (int i = 0; i < remaining_cta; i ++){ 
+				m_core[core]->add_kernel_multitasking(k);
+				m_core[core]->issue_block2core(*k);
+                              	num_blocks_issued ++;
+			}
+              	}
+    	}
+
+    	m_cta_issue_next_core=core;
+    }
+
+    return num_blocks_issued;
+}
+
+
+//HIMANSHU - RL version of issue_block2core
+unsigned simt_core_cluster::issue_block2core_rl(int core, std::vector<int> rl_alloc)
+{
+    unsigned num_blocks_issued = 0;
+    std::vector<kernel_info_t *> gpu_scheduled_kernels = m_gpu->get_gpu_scheduled_kernels();
+    int num_gpu_scheduled = m_gpu->num_kernels_scheduled();
+
+    int max_cta_0 = m_config->max_cta(*gpu_scheduled_kernels[0] , 1);
+    int max_cta_1 = m_config->max_cta(*gpu_scheduled_kernels[1] , 1);
+
+    std::vector<int> ctas(num_gpu_scheduled, 0);
+    for (int i = 0; i < num_gpu_scheduled; i ++)
+    	ctas[i] = m_core[core]->get_n_active_cta_smk(gpu_scheduled_kernels[i]);
+
+    for (int j = 0; j < num_gpu_scheduled; j ++){
+    	kernel_info_t *k = gpu_scheduled_kernels[j];
+
+	    int allowed_cta = m_core[core]->get_config()->allowed_ctas(gpu_scheduled_kernels, j, ctas);
+      	int remaining_cta = rl_alloc[j] - ctas[j];
+	    int ctas_to_allocate = (remaining_cta <= allowed_cta) ? remaining_cta : allowed_cta;
+       	for (int i = 0; i < ctas_to_allocate; i ++){
+        	if ( k && !k->no_more_ctas_to_run() ){        
+			m_core[core]->add_kernel_multitasking(k);
+               		m_core[core]->issue_block2core(*k);
+			ctas[j] = ctas[j] + 1;
+               		num_blocks_issued ++;
+              	}
+      	}
+    }
+
+    m_cta_issue_next_core=core;
+
+    return num_blocks_issued;
+}
+
 
 void simt_core_cluster::cache_flush() {
   for (unsigned i = 0; i < m_config->n_simt_cores_per_cluster; i++)

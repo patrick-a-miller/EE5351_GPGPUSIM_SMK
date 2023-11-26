@@ -175,6 +175,14 @@ bool OptionRegistry<bool>::isFlag() {
   return true;
 }
 
+/*******************
+     * SMK changes --orig. auth: HIMASHU
+     * SMK header -- evaluate placement
+     **/
+    //HIMANSHU
+#include "abstract_hardware_model.h"
+/************************/
+
 // class holding a collection of options and parse them from command
 // line/configfile
 class OptionParser {
@@ -358,6 +366,14 @@ void option_parser_destroy(option_parser_t opp) {
   delete p_opr;
 }
 
+/*******************
+     * SMK changes --orig. auth: HIMASHU
+     * SMK header -- evaluate placement
+     **/
+//HIMANSHU
+#include "abstract_hardware_model.h"
+//--------
+
 void option_parser_register(option_parser_t opp, const char *name,
                             enum option_dtype type, void *variable,
                             const char *desc, const char *defaultvalue) {
@@ -393,6 +409,16 @@ void option_parser_register(option_parser_t opp, const char *name,
     case OPT_CSTR:
       p_opr->Register<char *>(name, desc, *(char **)variable, defaultvalue);
       break;
+    /*******************
+     * SMK changes --orig. auth: HIMASHU
+     * SMK introduced type
+     **/
+    //HIMANSHU
+    case OPT_SIZET:     
+      p_opr->Register<size_t>(name, desc, *(size_t*)variable, defaultvalue); 
+      break;
+    //--------
+    /***************************/
     default:
       fprintf(stderr,
               "\n\nGPGPU-Sim ** ERROR: option data type (%d) not supported!\n",

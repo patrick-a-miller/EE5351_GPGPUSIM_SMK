@@ -43,6 +43,10 @@ endif
 BUILD_ROOT?=$(shell pwd)
 export TRACE?=1
 
+# SMK changes -- orig. auth: HIMANSHU
+$(info BUILD ROOT = $(BUILD_ROOT))
+#--------
+
 NVCC_PATH=$(shell which nvcc)
 ifneq ($(shell which nvcc), "")
 	ifeq ($(DEBUG), 1)
@@ -59,6 +63,10 @@ $(shell mkdir -p $(SIM_OBJ_FILES_DIR)/libcuda && echo "const char *g_gpgpusim_bu
 
 LIBS = cuda-sim gpgpu-sim_uarch $(INTERSIM) gpgpusimlib
 
+#SMK changes -- orig. auth: HIMANSHU
+$(info GPGPU SIM LIB DIR = $(SIM_LIB_DIR))
+$(info GPGPU SIM OBJ DIR = $(SIM_OBJ_FILES_DIR))
+#--------
 
 TARGETS =
 ifeq ($(shell uname),Linux)
@@ -96,6 +104,9 @@ endif
 .PHONY: check_setup_environment check_power
 gpgpusim: check_setup_environment check_power makedirs $(TARGETS)
 
+#SMK changes -- orig. auth: HIMANSHU
+$(info GPGPU SIM ROOT = $(GPGPUSIM_ROOT))
+#--------
 
 check_setup_environment:
 	 @if [ ! -n "$(GPGPUSIM_ROOT)" -o ! -n "$(CUDA_INSTALL_PATH)" -o ! -n "$(GPGPUSIM_SETUP_ENVIRONMENT_WAS_RUN)" ]; then \
@@ -194,8 +205,12 @@ $(SIM_LIB_DIR)/libOpenCL.so: makedirs $(LIBS) opencllib
 	if [ ! -f $(SIM_LIB_DIR)/libOpenCL.so.1.1 ]; then ln -s libOpenCL.so $(SIM_LIB_DIR)/libOpenCL.so.1.1; fi
 
 cudalib: makedirs cuda-sim
-	$(MAKE) -C ./libcuda/ depend
-	$(MAKE) -C ./libcuda/
+#SMK changes -- orig. auth: HIMANSHU
+#-	$(MAKE) -C ./libcuda/ depend
+#-	$(MAKE) -C ./libcuda/
+	$(MAKE) -I/usr/include -C ./src/gpgpu-sim/ depend
+	$(MAKE) -I/usr/include -C ./src/gpgpu-sim/
+# ------>
 
 ifneq ($(GPGPUSIM_POWER_MODEL),)
 mcpat: makedirs

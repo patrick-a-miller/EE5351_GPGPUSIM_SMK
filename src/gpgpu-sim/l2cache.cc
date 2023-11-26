@@ -46,6 +46,17 @@
 #include "mem_latency_stat.h"
 #include "shader.h"
 
+/*******************
+     * SMK changes --orig. auth: HIMASHU
+     * SMK headers
+     **/
+    //HIMANSHU
+std::vector<unsigned int> l2cache_sid;
+std::vector<unsigned int> l2cache_wid;
+std::vector<enum cache_request_status> l2cache_smk_hitmiss;
+//--------
+/***********************************/
+
 mem_fetch *partition_mf_allocator::alloc(new_addr_type addr,
                                          mem_access_type type, unsigned size,
                                          bool wr,
@@ -516,6 +527,17 @@ void memory_sub_partition::cache_cycle(unsigned cycle) {
         bool read_sent = was_read_sent(events);
         MEM_SUBPART_DPRINTF("Probing L2 cache Address=%llx, status=%u\n",
                             mf->get_addr(), status);
+
+    /*******************
+     * SMK changes --orig. auth: HIMASHU
+     * SMK l2 monitoring
+     **/
+    //HIMANSHU
+		l2cache_sid.push_back(mf->get_sid());
+		l2cache_wid.push_back(mf->get_wid());
+		l2cache_smk_hitmiss.push_back(status);
+		//--------
+    /***********************************/
 
         if (status == HIT) {
           if (!write_sent) {

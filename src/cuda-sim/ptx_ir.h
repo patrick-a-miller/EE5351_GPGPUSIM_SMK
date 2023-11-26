@@ -1230,6 +1230,16 @@ class param_info {
     return (m_is_ptr and m_ptr_space == shared_space);
   }
 
+  /*******************
+     * SMK changes --orig. auth: HIMASHU
+     * add value_set reader
+     **/
+    //HIMANSHU
+   bool is_value_set() const { return m_value_set; }
+   //--------
+   /*********************/
+
+
  private:
   bool m_valid;
   std::string m_name;

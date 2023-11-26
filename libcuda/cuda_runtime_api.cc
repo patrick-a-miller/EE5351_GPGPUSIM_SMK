@@ -113,6 +113,16 @@
 #include <regex>
 #include <sstream>
 #include <string>
+
+/*
+SMK changes --orig. auth: HIMASHU
+include additional headers used 
+TODO: class library implementation
+*/
+#include <iterator>
+#include <list>
+//******************************//
+
 #ifdef OPENGL_SUPPORT
 #define GL_GLEXT_PROTOTYPES
 #ifdef __APPLE__
@@ -146,6 +156,28 @@
 
 #include <pthread.h>
 #include <semaphore.h>
+
+/*
+SMK changes --orig. auth: HIMASHU
+sets namespace
+TODO: revisit this long-term
+TODO: evaluate benefit of namespace when v3_23 did not use it
+*/
+using std::vector;
+
+//TODO: significant changes in this region, additional namespaces invoked in v4
+
+//HIMANSHU - Create a list of all fatCubinHandles, hostFunctions, deviceFunctions and other parameters everytime this function is called. Use those lists for running concurrent kernels.
+vector<void **> fatCubinHandlePtrs;
+vector<const char *> hostFunPtrs;
+vector<char *> deviceFunPtrs;
+vector<const char *> deviceNamePtrs;
+vector<uint3 *> tidPtrs;
+vector<uint3 *> bidPtrs;
+vector<dim3 *> bDimPtrs;
+vector<dim3 *> gDimPtrs;
+
+//******************************//
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -190,10 +222,42 @@ void register_ptx_function(const char *name, function_info *impl) {
 #endif
 #endif
 
+
+/****************************************************
+SMK changes --orig. auth: HIMASHU
+TODO: evaluate moving into struct below after change to struct
+*/
+//HIMANSHU - Extract kernel parameters. To be used later during cudaLaunch.
+bool is_spatial_enabled = false;
+bool is_smk_enabled = false;
+char* k1_bdim = 0;
+char* k2_bdim = 0;
+char* k1_gdim = 0;
+char* k2_gdim = 0;
+size_t k1_shmem = 0;
+size_t k2_shmem = 0;
+/*************************************************/
+
+
 struct _cuda_device_id *gpgpu_context::GPGPUSim_Init() {
   _cuda_device_id *the_device = the_gpgpusim->the_cude_device;
   if (!the_device) {
     gpgpu_sim *the_gpu = gpgpu_ptx_sim_init_perf();
+
+    /****************************************************
+    SMK changes --orig. auth: HIMASHU
+    */
+    		//HIMANSHU
+		is_spatial_enabled = the_gpu->get_config().spatial_enabled();
+		//is_smk_enabled = the_gpu->get_config().smk_enabled;
+		k1_bdim = the_gpu->get_config().get_shader_config().kernel_one_block_dim;
+		k2_bdim = the_gpu->get_config().get_shader_config().kernel_two_block_dim;
+		k1_gdim = the_gpu->get_config().get_shader_config().kernel_one_grid_dim;
+                k2_gdim = the_gpu->get_config().get_shader_config().kernel_two_grid_dim;
+		k1_shmem = the_gpu->get_config().get_shader_config().kernel_one_shared_mem;
+                k2_shmem = the_gpu->get_config().get_shader_config().kernel_two_shared_mem;
+		//--------
+    /****************************************************/
 
     cudaDeviceProp *prop = (cudaDeviceProp *)calloc(sizeof(cudaDeviceProp), 1);
     snprintf(prop->name, 256, "GPGPU-Sim_v%s", g_gpgpusim_version_string);
@@ -763,6 +827,21 @@ void cudaRegisterFunctionInternal(void **fatCubinHandle, const char *hostFun,
   if (g_debug_execution >= 3) {
     announce_call(__my_func__);
   }
+  /***********************
+ * SMK changes -- orig. auth: HIMANSHU
+ *
+ **/
+//Add all the pointers to global variables
+	fatCubinHandlePtrs.push_back(fatCubinHandle);
+	hostFunPtrs.push_back(hostFun);
+	deviceFunPtrs.push_back(deviceFun);
+	deviceNamePtrs.push_back(deviceName);
+	tidPtrs.push_back(tid);
+	bidPtrs.push_back(bid);
+	bDimPtrs.push_back(bDim);
+	gDimPtrs.push_back(gDim);
+  /**********************************/
+
   CUctx_st *context = GPGPUSim_Context(ctx);
   unsigned fat_cubin_handle = (unsigned)(unsigned long long)fatCubinHandle;
   printf(
@@ -815,6 +894,12 @@ void cudaRegisterVarInternal(
     cuda_not_implemented(__my_func__, __LINE__);
 }
 
+/******************************************************
+SMK changes
+HIMANSHU flagged cudaConfigureCall for modification for SMK
+No changes in source
+TODO: evaluate what changes may be needed
+******************************************/
 cudaError_t cudaConfigureCallInternal(dim3 gridDim, dim3 blockDim,
                                       size_t sharedMem, cudaStream_t stream,
                                       gpgpu_context *gpgpu_ctx = NULL) {
@@ -910,8 +995,26 @@ cudaError_t cudaSetupArgumentInternal(const void *arg, size_t size,
   return g_last_cudaError = cudaSuccess;
 }
 
+/*************************
+ * SMK changes -- orig. auth: HIMANSHU
+ *  cudaLaunch body moved to cudaLaunchInternal
+*/
+//HIMANSHU - IMPORTANT: Need to modify this to include all hostFunctions (eg. VecAdd and VecAddCopy)
+bool already_run = false;
+int cudaLaunchCount = 0;
+/***********************************/
+
 cudaError_t cudaLaunchInternal(const char *hostFun,
                                gpgpu_context *gpgpu_ctx = NULL) {
+/*************************
+ * SMK changes -- orig. auth: HIMANSHU
+ ****************/
+if (cudaLaunchCount == 0) {
+		cudaLaunchCount ++;
+		return g_last_cudaError = cudaSuccess;
+	}
+/*******************************************/
+
   gpgpu_context *ctx;
   if (gpgpu_ctx) {
     ctx = gpgpu_ctx;
@@ -923,6 +1026,12 @@ cudaError_t cudaLaunchInternal(const char *hostFun,
   }
   CUctx_st *context = GPGPUSim_Context(ctx);
   char *mode = getenv("PTX_SIM_MODE_FUNC");
+/*************************
+ * SMK changes -- orig. auth: HIMANSHU
+ * TODO: evaluate possible uses of commented section
+ ****************/
+//bool spatial_enabled = gpgpu_spatial_enabled;
+/******************************/
   if (mode) sscanf(mode, "%u", &(ctx->func_sim->g_ptx_sim_mode));
   gpgpusim_ptx_assert(!ctx->api->g_cuda_launch_stack.empty(),
                       "empty launch stack");
@@ -938,16 +1047,69 @@ cudaError_t cudaLaunchInternal(const char *hostFun,
       return g_last_cudaError = cudaErrorInvalidConfiguration;
     }
   }
+/***********************
+ * SMK changes -- orig. auth: HIMANSHU
+ * 
+*/
+//HIMANSHU
+	int nkernels = g_cuda_launch_stack.size(); 
+	std::list<kernel_config> configs;
+	std::list<kernel_config>::iterator it;
+	for (it = g_cuda_launch_stack.begin(); it != g_cuda_launch_stack.end(); it ++)
+		configs.push_back(*it);
+	//--------
+  /******************************/
+
+
   struct CUstream_st *stream = config.get_stream();
+
+/***********************
+ * SMK changes -- orig. auth: HIMANSHU
+ * 
+*/
+unsigned curr_uid = stream->get_uid();
+
+	//HIMANSHU
+	std::list<struct CUstream_st *> streams;
+	std::list<kernel_config>::iterator it_st;
+	for (it_st = configs.begin(); it_st != configs.end(); it_st ++){
+		struct CUstream_st *curr_stream = (*it_st).get_stream();
+		curr_uid = curr_uid + 1;
+		//if (curr_stream)
+		//	curr_stream->set_uid(curr_uid);
+		streams.push_back(curr_stream);
+	}
+	//--------
+  /*******************************/
 
   printf("\nGPGPU-Sim PTX: cudaLaunch for 0x%p (mode=%s) on stream %u\n",
          hostFun,
          (ctx->func_sim->g_ptx_sim_mode) ? "functional simulation"
                                          : "performance simulation",
          stream ? stream->get_uid() : 0);
-  kernel_info_t *grid = ctx->api->gpgpu_cuda_ptx_sim_init_grid(
-      hostFun, config.get_args(), config.grid_dim(), config.block_dim(),
-      context);
+/***********************
+ * SMK changes -- orig. auth: HIMANSHU
+ *TODO: large changes to base code, SMK changes affect everything leading to final return. extend changes to new portion?
+ **/
+ // kernel_info_t *grid = ctx->api->gpgpu_cuda_ptx_sim_init_grid(
+ //     hostFun, config.get_args(), config.grid_dim(), config.block_dim(),
+ //     context);
+	//HIMANSHU
+	int count = 0;
+	for (it = configs.begin(); it != configs.end(); it ++) {
+		kernel_info_t *grid = gpgpu_cuda_ptx_sim_init_grid(hostFunPtrs[count],(*it).get_args(),(*it).grid_dim(),(*it).block_dim(),context);
+        	std::string kname = grid->name();
+        	dim3 gridDim = (*it).grid_dim();
+        	dim3 blockDim = (*it).block_dim();
+		count ++;
+		struct CUstream_st *curr_stream = (*it).get_stream();
+		printf("GPGPU-Sim PTX: pushing kernel \'%s\' to stream %u, gridDim= (%u,%u,%u) blockDim = (%u,%u,%u) \n",
+                kname.c_str(), curr_stream?curr_stream->get_uid():0, gridDim.x,gridDim.y,gridDim.z,blockDim.x,blockDim.y,blockDim.z );
+		stream_operation op(grid, g_ptx_sim_mode, curr_stream);
+		g_stream_manager->push(op);		
+	}
+	//--------
+/********************************/
   // do dynamic PDOM analysis for performance simulation scenario
   std::string kname = grid->name();
   function_info *kernel_func_info = grid->entry();
@@ -2747,6 +2909,40 @@ __host__ const char *CUDARTAPI cudaGetErrorString(cudaError_t error) {
            g_last_cudaError);
   return strdup(buf);
 }
+
+/****************************************************
+SMK changes --orig. auth: HIMASHU
+*/
+//HIMANSHU - Extract block dimenion and grid dimension from char pointer
+dim3 extract_dim(char* dim)
+{
+	std::string str = dim;
+	std::stringstream ss(str);
+	//ss << str;
+
+	int xdim = 1, ydim = 1, zdim = 1;
+
+	std::string temp;
+	int found;
+	int count = 0;
+	while (!ss.eof()) {
+		ss >> temp;
+		if (std::stringstream(temp) >> found){
+			count ++;
+			if (count == 1)
+				xdim = found;
+			if (count == 2)
+				ydim = found;
+			if (count == 3)
+				zdim = found; 
+		}	
+	}
+	return {xdim, ydim, zdim};
+}
+
+/**************************************/
+
+
 
 __host__ cudaError_t CUDARTAPI cudaSetupArgument(const void *arg, size_t size,
                                                  size_t offset) {

@@ -1237,6 +1237,14 @@ class core_t {
         reduction_storage[i][j] = 0;
       }
     }
+
+    /*******************
+     * SMK changes --orig. auth: HIMASHU
+     **/
+    //HIMANSHU
+	    running_kernel_index = -1;
+	    //--------
+    /*****************/
   }
   virtual ~core_t() { free(m_thread); }
   virtual void warp_exit(unsigned warp_id) = 0;
@@ -1280,6 +1288,14 @@ class core_t {
   unsigned m_warp_size;
   unsigned m_warp_count;
   unsigned reduction_storage[MAX_CTA_PER_SHADER][MAX_BARRIERS_PER_CTA];
+  /*******************
+     * SMK changes --orig. auth: HIMASHU
+     **/
+    //HIMANSHU - For spatial or SMK multitasking
+	std::vector<kernel_info_t *> core_kernels;
+	unsigned running_kernel_index;	// keep track of kernel to be scheduled next on a core during SMK.
+	//--------
+  /***********************************/
 };
 
 // register that can hold multiple instructions.

@@ -40,6 +40,20 @@
 #include "gpu-cache.h"
 #include "shader.h"
 
+/*******************
+     * SMK changes --orig. auth: HIMASHU
+     * headers for SMK 
+     **/
+    //HIMANSHU
+#include "zlib.h"
+//#include <zmq.h>
+//#include <czmq.h>
+#include <string.h>
+#include <unistd.h>
+#include <queue>
+//--------
+/*******************************/
+
 // constants for statistics printouts
 #define GPU_RSTAT_SHD_INFO 0x1
 #define GPU_RSTAT_BW_STAT 0x2
@@ -358,6 +372,25 @@ class gpgpu_sim_config : public power_config,
     m_valid = true;
   }
 
+/*******************
+     * SMK changes --orig. auth: HIMASHU
+     * SMK functions
+     **/
+
+  //HIMANSHU
+    shader_core_config get_shader_config() const { return m_shader_config; }
+    bool spatial_enabled() const { return gpgpu_spatial_enabled; }
+    bool smk_enabled() const { return gpgpu_smk_enabled; }
+    unsigned int get_smk_max_instructions() const { return gpgpu_smk_max_instructions; }
+    bool fairness_enabled() const { return gpgpu_enable_fairness; }
+    bool get_rl_enabled() const { return gpgpu_enable_rl; }
+    bool get_rl_aggressive() const { return gpgpu_aggressive_rl; }
+    unsigned int get_print_stats_instructions() const { return gpgpu_print_stats_instructions; }
+    float get_dual_ipc_ratio() const { return gpgpu_dual_ipc_ratio; }
+    std::vector<unsigned> get_static_ctas() const { return {gpgpu_static_alloc_cta_k1, gpgpu_static_alloc_cta_k2}; }
+    //--------
+    /*********************/
+
   unsigned num_shader() const { return m_shader_config.num_shader(); }
   unsigned num_cluster() const { return m_shader_config.n_simt_clusters; }
   unsigned get_max_concurrent_kernel() const { return max_concurrent_kernel; }
@@ -412,6 +445,24 @@ class gpgpu_sim_config : public power_config,
   // statistics collection
   int gpu_stat_sample_freq;
   int gpu_runtime_stat_flag;
+
+  /*******************
+     * SMK changes --orig. auth: HIMASHU
+     * SMK stat flags
+     **/
+    //HIMANSHU
+    bool gpgpu_spatial_enabled;
+    bool gpgpu_smk_enabled;
+    unsigned gpgpu_static_alloc_cta_k1;
+    unsigned gpgpu_static_alloc_cta_k2;
+    bool gpgpu_enable_fairness;
+    float gpgpu_dual_ipc_ratio;
+    unsigned int gpgpu_smk_max_instructions;
+    unsigned int gpgpu_print_stats_instructions;
+    bool gpgpu_enable_rl;
+    bool gpgpu_aggressive_rl;
+    //--------
+    /***********************************/
 
   // Device Limits
   size_t stack_size_limit;
@@ -483,7 +534,14 @@ class gpgpu_sim : public gpgpu_t {
 
   void set_prop(struct cudaDeviceProp *prop);
 
-  void launch(kernel_info_t *kinfo);
+ /*******************
+     * SMK changes --orig. auth: HIMASHU
+     * pass in kernel pointers for SMK launch
+     **/
+  //- void launch(kernel_info_t *kinfo);
+  void launch( kernel_info_t *kinfo, std::vector<kernel_info_t *>kernel_pointers );
+  /******************************/
+
   bool can_start_kernel();
   unsigned finished_kernel();
   void set_kernel_done(kernel_info_t *kernel);
@@ -509,6 +567,20 @@ class gpgpu_sim : public gpgpu_t {
   void get_pdom_stack_top_info(unsigned sid, unsigned tid, unsigned *pc,
                                unsigned *rpc);
 
+/*******************
+     * SMK changes --orig. auth: HIMASHU
+     * SMK stat methods
+     **/
+    //HIMANSHU
+   int get_occupied_shared_mem();
+   void collect_kernel_statistics();
+   void collect_kernel_inst_type_statistics();
+   void collect_reservation_fails();
+   void collect_kernel_l1_cache_statistics(); //0: HIT, 1: MISS
+   void collect_kernel_l2_cache_statistics();
+   //--------
+   /*******************************/
+
   int shared_mem_size() const;
   int shared_mem_per_block() const;
   int compute_capability_major() const;
@@ -528,6 +600,19 @@ class gpgpu_sim : public gpgpu_t {
   bool hit_max_cta_count() const;
   kernel_info_t *select_kernel();
   void decrement_kernel_latency();
+
+/*******************
+     * SMK changes --orig. auth: HIMASHU
+     * SMK queries
+     **/
+    //HIMANSHU
+   int num_kernels_scheduled();
+   std::vector<kernel_info_t *> get_gpu_scheduled_kernels() { if (!m_running_kernels.empty()) { return m_running_kernels; } }
+   int get_max_cta_smk(int gpu_running_kernel_index) { if (gpu_running_kernel_index < m_running_kernels.size()) return max_cta_smk[gpu_running_kernel_index]; }
+   void set_last_cluster_issued(unsigned cluster_id) { m_last_cluster_issue = cluster_id; }
+   void inc_total_cta_launched(unsigned inc) { m_total_cta_launched += inc; }
+   //--------
+
 
   const gpgpu_sim_config &get_config() const { return m_config; }
   void gpu_print_stat();
@@ -570,6 +655,15 @@ class gpgpu_sim : public gpgpu_t {
   void reinit_clock_domains(void);
   int next_clock_domain(void);
   void issue_block2core();
+  /*******************
+     * SMK changes --orig. auth: HIMASHU
+     * SMK blocking functions
+     **/
+    //HIMANSHU
+   void issue_block2core_coordinate_descent();
+   void issue_block2core_hybrid();
+   //--------
+   /**********************/
   void print_dram_stats(FILE *fout) const;
   void shader_print_runtime_stat(FILE *fout);
   void shader_print_l1_miss_stat(FILE *fout) const;
@@ -587,6 +681,31 @@ class gpgpu_sim : public gpgpu_t {
   class memory_sub_partition **m_memory_sub_partition;
 
   std::vector<kernel_info_t *> m_running_kernels;
+
+  /*******************
+     * SMK changes --orig. auth: HIMASHU
+     * SMK vars
+     **/
+    //HIMANSHU - As long as kernels_scheduled is <= 1, do not call the gpgpu_sim::launch() function.
+   int kernels_scheduled;
+   std::vector<int> max_cta_smk;
+   std::vector<int> coordinate_id_shader; // Can be only 0 and 1 if number of kernels are 2.
+   std::vector<bool> coordinate_update_shader; // Used to decide whether to allocate extra CTA for that kernel. 
+   double ipc_coor;
+   double prev_ipc_coor;
+   double avg_ipc_coor;
+   double prev_avg_ipc_coor;
+   double threshold_coor; //Set accordingly
+   int step_size_coor;	//Set accordingly
+   int count_coor;
+   std::map<kernel_info_t *, std::vector<int>> m_kernel_inst_wait_fu; //SP, SP, SFU, MEM
+   unsigned m_num_function_units_core;
+   std::map<kernel_info_t *, int> m_reservation_fails;
+   std::map<kernel_info_t *, std::vector<int>> m_kernel_inst_type; //SP, SP, SFU, MEM
+   std::map<kernel_info_t *, std::vector<int>> m_kernel_l1_cache_stats; 
+   //--------
+   /****************/
+
   unsigned m_last_issued_kernel;
 
   std::list<unsigned> m_finished_kernel;
@@ -597,6 +716,18 @@ class gpgpu_sim : public gpgpu_t {
   unsigned gpu_completed_cta;
 
   unsigned m_last_cluster_issue;
+
+/*******************
+     * SMK changes --orig. auth: HIMASHU
+     * SMK coordinated vars
+     **/
+    //HIMANSHU - Coordinated SMK
+   unsigned m_last_coordinate_issue;
+   unsigned m_last_kernel_issue;
+   unsigned m_last_core_issue;
+   //--------
+   /*************************************/
+
   float *average_pipeline_duty_cycle;
   float *active_sms;
   // time of next rising edge
@@ -643,6 +774,31 @@ class gpgpu_sim : public gpgpu_t {
   unsigned long long gpu_tot_sim_insn;
   unsigned long long gpu_sim_insn_last_update;
   unsigned gpu_sim_insn_last_update_sid;
+
+/*******************
+     * SMK changes --orig. auth: HIMASHU
+     * SMK data collections
+     **/
+    //HIMANSHU
+   std::map<kernel_info_t *, unsigned long long> gpu_sim_insn_smk;
+   std::map<kernel_info_t *, unsigned long long> gpu_sim_sp_stalls;
+   std::map<kernel_info_t *, unsigned long long> gpu_sim_sfu_stalls; 
+   std::map<kernel_info_t *, std::vector<int>> m_kernel_inst_wait_cycles_fu;
+   unsigned long long gpu_ptx_sim_num_insn;
+   std::vector<unsigned long long> gpu_sim_insn_kernels;
+   std::vector<unsigned long long> gpu_sim_insn_total_kernels;
+   std::vector<unsigned> m_empty_pipeline_stages;
+   std::map<kernel_info_t *, unsigned long long> m_cycles_data_hazard;
+   std::map<kernel_info_t *, unsigned long long> m_cycles_control_hazard;
+   bool gpu_print_stats;
+   bool gpu_call_online_smk_model;
+   bool gpu_issue_block2core_once;
+   std::queue<int> gpu_rl_core;
+   std::queue<int> gpu_rl_cta0;
+   std::queue<int> gpu_rl_cta1;
+   //--------
+   /*************************************/
+
   occupancy_stats gpu_occupancy;
   occupancy_stats gpu_tot_occupancy;
 

@@ -32,6 +32,13 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <time.h>
+/*******************
+     * SMK changes --orig. auth: HIMASHU
+     * SMK-utilized header
+     **/
+#include <sys/resource.h>
+/**********************************/
+
 #include "abstract_hardware_model.h"
 
 // extern time_t g_simulation_starttime;

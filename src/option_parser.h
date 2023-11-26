@@ -44,8 +44,15 @@ enum option_dtype {
   OPT_FLOAT,
   OPT_DOUBLE,
   OPT_CHAR,
-  OPT_CSTR
+  OPT_CSTR,
+  OPT_DIM3,
+  OPT_SIZET
 };
+  /*******************
+     * SMK changes --orig. auth: HIMASHU
+     * SMK introduced type
+     **/
+  //- OPT_CSTR
 
 // create and destroy option parser
 option_parser_t option_parser_create();

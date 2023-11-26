@@ -111,6 +111,15 @@ void CUstream_st::print(FILE *fp) {
   pthread_mutex_unlock(&m_lock);
 }
 
+/*******************
+ * SMK changes --orig. auth: HIMASHU
+ * SMK kernel ptr vector
+ **/
+//HIMANSHU
+std::vector<kernel_info_t *> kernel_pointers;
+//--------
+/************************/
+
 bool stream_operation::do_operation(gpgpu_sim *gpu) {
   if (is_noop()) return true;
 
@@ -162,7 +171,25 @@ bool stream_operation::do_operation(gpgpu_sim *gpu) {
             m_kernel->print_parent_info();
           }
           gpu->set_cache_config(m_kernel->name());
-          gpu->launch(m_kernel);
+
+          /*******************
+          * SMK changes --orig. auth: HIMASHU
+          * SMK modified launch point
+          **/
+          //- gpu->launch(m_kernel);
+          //HIMANSHU - Call launch only if more than one kernel are transferred to
+			    //GPU hardware scheduler
+			    bool is_spatial_enabled = gpu->get_config().spatial_enabled();
+			    bool is_smk_enabled = gpu->get_config().smk_enabled();
+			    kernel_pointers.push_back(m_kernel);
+			    if (is_spatial_enabled && (kernel_pointers.size() > 1))
+				    gpu->launch( m_kernel, kernel_pointers );
+			    if (is_smk_enabled && (kernel_pointers.size() > 1))
+				    gpu->launch( m_kernel, kernel_pointers );
+			    if (!is_spatial_enabled && !is_smk_enabled)
+				    gpu->launch( m_kernel, kernel_pointers );
+			    //--------
+          /********************************/
         } else {
           if (m_kernel->m_launch_latency) m_kernel->m_launch_latency--;
           if (g_debug_execution >= 3)
@@ -472,6 +499,29 @@ void stream_manager::push(stream_operation op) {
     }
   }
 }
+
+/*******************
+ * SMK changes --orig. auth: HIMASHU
+  * SMK operation list
+**/
+//HIMANSHU
+//Returns a list of all operations in the front of each stream
+std::list<stream_operation> stream_manager::get_next_op_all_streams()
+{
+	pthread_mutex_lock(&m_lock);
+	std::list<CUstream_st *> all_streams = get_all_streams();
+	std::list<stream_operation> ops;
+	std::list<CUstream_st *>::iterator i;
+
+    	for( i=all_streams.begin(); i!=all_streams.end(); i++ ) {
+		ops.push_back((*i)->next());
+	}
+	pthread_mutex_unlock(&m_lock);
+
+	return ops;
+}
+//-------
+/******************************************/
 
 void stream_manager::pushCudaStreamWaitEventToAllStreams(CUevent_st *e,
                                                          unsigned int flags) {

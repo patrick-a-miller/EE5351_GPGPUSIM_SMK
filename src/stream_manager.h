@@ -235,6 +235,14 @@ struct CUstream_st {
   stream_operation &front() { return m_operations.front(); }
   void print(FILE *fp);
   unsigned get_uid() const { return m_uid; }
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK set uid
+  **/
+  //HIMANSHU
+  void set_uid(unsigned uid) { m_uid = uid; }
+    //--------
+    /********************************/
 
  private:
   unsigned m_uid;
@@ -262,6 +270,16 @@ class stream_manager {
   void push(stream_operation op);
   void pushCudaStreamWaitEventToAllStreams(CUevent_st *e, unsigned int flags);
   bool operation(bool *sim);
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK stream ops
+  **/
+ //HIMANSHU
+ std::list<CUstream_st *> get_all_streams(){ return m_streams; }
+ std::list<stream_operation> get_next_op_all_streams();
+ int return_num_kernels_all_streams() { return kernel_pointers.size(); }
+ void add_kernel_info_all_streams(kernel_info_t *k) { kernel_pointers.push_back(k); }
+ /***************************************/
   void stop_all_running_kernels();
   unsigned size() { return m_streams.size(); };
   bool is_blocking() { return m_cuda_launch_blocking; };
@@ -277,6 +295,14 @@ class stream_manager {
   bool m_service_stream_zero;
   pthread_mutex_t m_lock;
   std::list<struct CUstream_st *>::iterator m_last_stream;
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK kernel data
+  **/
+  //HIMANSHU
+  std::vector<kernel_info_t *> kernel_pointers;
+  //--------
+  /**************************/
 };
 
 #endif

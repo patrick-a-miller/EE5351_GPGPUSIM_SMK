@@ -70,6 +70,17 @@
 
 #define WRITE_MASK_SIZE 8
 
+/*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK cache status values
+  **/
+//HIMANSHU
+extern std::vector<unsigned int> l2cache_sid;
+extern std::vector<unsigned int> l2cache_wid;
+extern std::vector<enum cache_request_status> l2cache_smk_hitmiss;
+//--------
+/*********************************/
+
 class gpgpu_context;
 
 enum exec_unit_type_t {
@@ -122,13 +133,29 @@ class shd_warp_t {
     m_cdp_latency = 0;
     m_cdp_dummy = false;
   }
+
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK add kernel data
+  **/
+
   void init(address_type start_pc, unsigned cta_id, unsigned wid,
             const std::bitset<MAX_WARP_SIZE> &active,
-            unsigned dynamic_warp_id) {
+//-            unsigned dynamic_warp_id) {
+            unsigned dynamic_warp_id, kernel_info_t *kernel ) {
+              /**********************************************************/
     m_cta_id = cta_id;
     m_warp_id = wid;
     m_dynamic_warp_id = dynamic_warp_id;
     m_next_pc = start_pc;
+    /*******************
+    * SMK changes --orig. auth: HIMASHU
+    * SMK add kernel data
+    **/
+    //HIMANSHU - Keeps track of kernel info for a warp
+	  m_warp_kernel = kernel;
+	  //--------
+    /*********************/
     assert(n_completed >= active.count());
     assert(n_completed <= m_warp_size);
     n_completed -= active.count();  // active threads are not yet completed
@@ -238,6 +265,15 @@ class shd_warp_t {
   unsigned get_dynamic_warp_id() const { return m_dynamic_warp_id; }
   unsigned get_warp_id() const { return m_warp_id; }
 
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK add kernel data
+  **/
+  //HIMANSHU
+  kernel_info_t *get_warp_kernel() { return m_warp_kernel; }
+  //--------
+  /**************************************/
+
   class shader_core_ctx * get_shader() { return m_shader; }
  private:
   static const unsigned IBUFFER_SIZE = 2;
@@ -277,6 +313,15 @@ class shd_warp_t {
   unsigned m_stores_outstanding;  // number of store requests sent but not yet
                                   // acknowledged
   unsigned m_inst_in_pipeline;
+
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK add kernel data
+  **/
+  //HIMANSHU
+  kernel_info_t *m_warp_kernel;
+  //--------
+  /*******************************/
 
   // Jin: cdp support
  public:
@@ -354,6 +399,15 @@ class scheduler_unit {  // this can be copied freely, so can be used in std
   virtual void done_adding_supervised_warps() {
     m_last_supervised_issued = m_supervised_warps.end();
   }
+
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK add kernel data
+  **/
+  //HIMANSHU
+  shader_core_ctx * get_shader() { return m_shader; }
+  //--------
+  /************************/
 
   // The core scheduler cycle method is meant to be common between
   // all the derived schedulers.  The scheduler's behaviour can be
@@ -1058,6 +1112,14 @@ class simd_function_unit {
   }
   const char *get_name() { return m_name.c_str(); }
 
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * accessor functions for SIMD function unit
+  **/
+  virtual std::string get_name() { return m_name; } //HIMANSHU
+  virtual warp_inst_t * get_dispatch_reg() { return m_dispatch_reg; } //HIMANSHU
+  /********************************/
+
  protected:
   std::string m_name;
   const shader_core_config *m_config;
@@ -1072,6 +1134,14 @@ class pipelined_simd_unit : public simd_function_unit {
                       const shader_core_config *config, unsigned max_latency,
                       shader_core_ctx *core);
 
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * accessor for core
+  **/
+  //HIMANSHU
+  virtual shader_core_ctx * get_core() { return m_core; }
+ //--------
+ /**************************/
   // modifiers
   virtual void cycle();
   virtual void issue(register_set &source_reg);
@@ -1481,7 +1551,18 @@ class shader_core_config : public core_config {
     }
   }
   void reg_options(class OptionParser *opp);
-  unsigned max_cta(const kernel_info_t &k) const;
+  
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * thread block threshold functions
+  **/
+  //- unsigned max_cta(const kernel_info_t &k) const;
+  // HIMANSHU - used for SMK
+  unsigned max_cta( const kernel_info_t &k, unsigned num_kernels ) const;
+  unsigned int allowed_ctas( std::vector<kernel_info_t *> kernel_pointers, unsigned index, std::vector<int> ctas ) const;
+  // --------
+ /**************************/
+
   unsigned num_shader() const {
     return n_simt_clusters * n_simt_cores_per_cluster;
   }
@@ -1585,6 +1666,20 @@ class shader_core_config : public core_config {
   int simt_core_sim_order;
 
   unsigned smem_latency;
+
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK vars
+  **/
+  //HIMANSHU
+  char* kernel_one_block_dim;
+  char* kernel_two_block_dim;
+  char* kernel_one_grid_dim;
+  char* kernel_two_grid_dim;
+  size_t kernel_one_shared_mem;
+  size_t kernel_two_shared_mem; 
+  //--------
+  /************************************/
 
   unsigned mem2device(unsigned memid) const { return memid + n_simt_clusters; }
 
@@ -1883,6 +1978,18 @@ class shader_core_ctx : public core_t {
   // used by simt_core_cluster:
   // modifiers
   void cycle();
+
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK reinit and RL issue
+  **/
+  //HIMANSHU
+  void reinit_smk(unsigned start_thread, unsigned end_thread, bool reset_not_completed, kernel_info_t &kernel);
+  unsigned issue_block2core_rl(std::vector<int> rl_alloc);
+  //void shader_rl_scheduler(kernel_info_t *kernel);
+  //--------
+  /****************************/
+
   void reinit(unsigned start_thread, unsigned end_thread,
               bool reset_not_completed);
   void issue_block2core(class kernel_info_t &kernel);
@@ -1901,6 +2008,83 @@ class shader_core_ctx : public core_t {
            m_kernel->get_uid(), m_kernel->name().c_str());
   }
 
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK block issue
+  **/
+  //HIMANSHU - Call it in issue_block2core when using spatial or SMK.
+  void add_kernel_multitasking(kernel_info_t *k) {
+	  int count = std::count(core_kernels.begin(), core_kernels.end(), k);
+	  if ((k != 0x0) && (count == 0)) {
+		  assert(k);
+		  core_kernels.push_back(k);
+		  k->inc_running();
+		  printf("GPGPU-Sim uArch: Shader %d bind to kernel %u \'%s\'\n", m_sid, k->get_uid(),
+                        k->name().c_str() );
+	  }
+  }
+
+  unsigned get_n_active_cta_smk(kernel_info_t *k) {
+	  unsigned count = 0;
+	  if (k != 0x0) {
+		  std::vector<kernel_info_t *>::iterator it;
+		  for (it = core_kernels.begin(); it != core_kernels.end(); it++){
+			  if (*it == k){
+				  return m_n_active_cta_smk[count];
+			  }
+			  count++;
+		  }
+	  }
+	  return 0;
+  }
+
+  unsigned increment_n_active_cta_smk(kernel_info_t *k) {
+	  unsigned count = 0;
+	  if (k != 0x0) {
+      std::vector<kernel_info_t *>::iterator it;
+      for (it = core_kernels.begin(); it != core_kernels.end(); it++){
+        if (*it == k){
+          m_n_active_cta_smk[count] = m_n_active_cta_smk[count] + 1;
+			  	return m_n_active_cta_smk[count];
+        }
+        count++;
+      }
+    }
+    return -1;
+  }
+
+  unsigned decrement_n_active_cta_smk(kernel_info_t *k)
+  {
+	  unsigned count = 0;
+	  if (k != 0x0) {
+		  std::vector<kernel_info_t *>::iterator it;
+		  for (it = core_kernels.begin(); it != core_kernels.end(); it++){
+			  if (*it == k){
+          m_n_active_cta_smk[count] = m_n_active_cta_smk[count] - 1;
+          return m_n_active_cta_smk[count];
+        }
+        count++;
+	  	}
+    }
+  }
+
+  unsigned get_step_size_acsmk(std::vector<kernel_info_t *> m_running_kernels, kernel_info_t *k)
+  {
+	  std::vector<kernel_info_t *>::iterator itr = std::find(m_running_kernels.begin(), m_running_kernels.end(), k);
+	  unsigned index = std::distance(m_running_kernels.begin(), itr);
+	  return kernel_step_size_acsmk[index];
+  }
+
+  unsigned set_step_size_acsmk(std::vector<kernel_info_t *> m_running_kernels, kernel_info_t *k, unsigned step_size)
+  {
+      std::vector<kernel_info_t *>::iterator itr = std::find(m_running_kernels.begin(), m_running_kernels.end(), k);
+      unsigned index = std::distance(m_running_kernels.begin(), itr);
+      kernel_step_size_acsmk[index] = step_size;
+  }
+  //--------
+
+  /***********************************************/
+
   // accessors
   bool fetch_unit_response_buffer_full() const;
   bool ldst_unit_response_buffer_full() const;
@@ -1914,6 +2098,41 @@ class shader_core_ctx : public core_t {
   }
   kernel_info_t *get_kernel() { return m_kernel; }
   unsigned get_sid() const { return m_sid; }
+
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK functions, vars
+  **/
+  //HIMANSHU
+  std::vector<kernel_info_t *> get_kernels() { return core_kernels; }
+  unsigned num_kernels() { return core_kernels.size(); }
+  unsigned inc_running_kernel_index() {
+	  running_kernel_index = (running_kernel_index + 1) % core_kernels.size();
+	  return running_kernel_index;
+  }
+  //void set_warp_kernel(unsigned i, kernel_info_t *k) {m_warp_kernel.insert(std::make_pair(i, k));} 
+  void allocate_cta_regions_smk();
+  void set_cta_count_to_zero_smk();
+  void set_step_size_to_one_acsmk();
+  void init_last_exe_kernel_func();
+  void init_kernel_statistics();
+  std::map<kernel_info_t *, std::vector<int>> collect_kernel_statistics();
+  std::map<kernel_info_t *, std::vector<int>> collect_kernel_inst_type_statistics();
+  std::map<kernel_info_t *, int> collect_reservation_fails();
+  std::map<kernel_info_t *, std::vector<int>> collect_kernel_l1_cache_statistics(); //0: HIT, 1: MISS
+  std::map<kernel_info_t *, std::vector<int>> get_kernel_l1_cache_statistics() {return kernel_l1_cache_stats;}
+  void inc_kernel_l1_cache_statistics(int warpId, int HIT_MISS);
+  void inc_empty_pipeline_stages(int inc, int index) { m_empty_pipeline_stages[index] = m_empty_pipeline_stages[index] + inc; }
+  void inc_shader_sim_cycles() { m_shader_sim_cycles = m_shader_sim_cycles + 1; }
+  std::vector<int> select_rl_action(std::vector<int> current_cta, int action); 
+  /*void init_rl_model(std::vector<int> current_cta);
+  void process_info_rl_model(std::vector<int> current_cta, std::vector<int> previous_cta, std::vector<int> extra_cta, 
+				int diff_ipc, int diff_dh, int diff_ch, std::vector<int> diff_empty_pipeline_stages );
+  void create_zmq_context();
+  void destroy_zmq_context();*/
+  //--------
+  /*****************/
+
 
   // used by functional simulation:
   // modifiers
@@ -1937,6 +2156,17 @@ class shader_core_ctx : public core_t {
   bool warp_waiting_at_mem_barrier(unsigned warp_id);
   void set_max_cta(const kernel_info_t &kernel);
   void warp_inst_complete(const warp_inst_t &inst);
+
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK warp functs
+  **/
+  //HIMANSHU
+  void warp_inst_complete_smk(const warp_inst_t &inst, kernel_info_t *kernel);
+  shd_warp_t get_warp(unsigned warp_id) { return m_warp[warp_id]; }
+  class gpgpu_sim * get_gpu() { return m_gpu; }
+  //--------
+  /*******************************/
 
   // accessors
   std::list<unsigned> get_regs_written(const inst_t &fvt) const;
@@ -2197,6 +2427,16 @@ class shader_core_ctx : public core_t {
   // CTA scheduling / hardware thread allocation
   unsigned m_n_active_cta;  // number of Cooperative Thread Arrays (blocks)
                             // currently running on this shader.
+
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK active cta
+  **/
+  // HIMANSHU
+  std::vector<unsigned> m_n_active_cta_smk;
+  // --------
+  /*************************/
+
   unsigned m_cta_status[MAX_CTA_PER_SHADER];  // CTAs status
   unsigned m_not_completed;  // number of threads to be completed (==0 when all
                              // thread on this core completed)
@@ -2215,6 +2455,17 @@ class shader_core_ctx : public core_t {
 
   // decode/dispatch
   std::vector<shd_warp_t *> m_warp;  // per warp information array
+
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK kernel, schedule warp pairs
+  **/
+  //HIMANSHU
+  //std::map<int, kernel_info_t *> m_warp_kernel;
+  std::map<kernel_info_t *, std::vector<shd_warp_t>> m_warp_smk;
+  //--------
+  /*************************/
+
   barrier_set_t m_barriers;
   ifetch_buffer_t m_inst_fetch_buffer;
   std::vector<register_set> m_pipeline_reg;
@@ -2235,6 +2486,32 @@ class shader_core_ctx : public core_t {
   std::vector<unsigned> m_issue_port;
   std::vector<simd_function_unit *>
       m_fu;  // stallable pipelines should be last in this array
+
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK vars
+  **/
+  //HIMANSHU
+  /*void * zmq_context;
+  void * requester;
+  std::string zmq_port;*/
+  unsigned int m_shader_curr_ipc;
+  unsigned int m_shader_prev_ipc;
+  unsigned int m_shader_sim_insn;
+  unsigned int m_shader_sim_cycles;
+  unsigned m_shader_rl_action_possible;
+  bool m_shader_init_rl;
+  std::map<kernel_info_t *, unsigned int> m_cycles_data_hazard;
+  std::map<kernel_info_t *, unsigned int> m_cycles_data_hazard_prev;
+  std::map<kernel_info_t *, unsigned int> m_cycles_control_hazard;
+  std::map<kernel_info_t *, unsigned int> m_cycles_control_hazard_prev;
+  std::vector<unsigned int> m_empty_pipeline_stages;
+  std::vector<unsigned int> m_empty_pipeline_stages_prev;
+  std::vector<warp_inst_t*> m_fu_prev_dispatch_reg;
+  std::vector<warp_inst_t*> m_prev_ready_reg;
+  //--------
+  /*******************************/
+
   ldst_unit *m_ldst_unit;
   static const unsigned MAX_ALU_LATENCY = 512;
   unsigned num_result_bus;
@@ -2243,6 +2520,27 @@ class shader_core_ctx : public core_t {
   // used for local address mapping with single kernel launch
   unsigned kernel_max_cta_per_shader;
   unsigned kernel_padded_threads_per_cta;
+
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK vars
+  **/
+  // HIMANSHU - Per kernel parameters when in SMK
+  std::vector<unsigned> kernel_max_cta_per_shader_smk;
+  std::vector<unsigned> kernel_padded_threads_per_cta_smk;
+  std::vector<unsigned> kernel_cta_region_smk;
+  std::vector<unsigned> kernel_step_size_acsmk;
+  std::map<kernel_info_t *, std::vector<int>> kernel_inst_wait_fu; //SP, SP, SFU, MEM
+  std::vector<kernel_info_t *> last_executed_kernel_fu; //SP, SP, SFU, MEM
+  std::map<kernel_info_t *, int> reservation_fails;
+  std::map<kernel_info_t *, std::vector<int>> kernel_inst_type; //SP, SP, SFU, MEM 
+  std::map<kernel_info_t *, std::vector<int>> kernel_l1_cache_stats; //0: HIT, 1: MISS
+  // --------
+  // To record the order in which a kernel is scheduled on a shader
+  std::vector<const kernel_info_t *> kernel_order_shader;
+  // --------
+  /************************************/
+
   // Used for handing out dynamic warp_ids to new warps.
   // the differnece between a warp_id and a dynamic_warp_id
   // is that the dynamic_warp_id is a running number unique to every warp
@@ -2309,6 +2607,26 @@ class simt_core_cluster {
 
   void reinit();
   unsigned issue_block2core();
+
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK issue vars and issue functs
+  **/
+  //HIMANSHU
+  const shader_core_config * get_config() { return m_config; }
+  shader_core_ctx * get_core(unsigned core_id) { return m_core[core_id]; }
+  unsigned issue_block2core_step_size(unsigned core, kernel_info_t *k, unsigned allowed_cta, std::vector<kernel_info_t *> m_running_kernels);
+  unsigned issue_block2core_coordinate_descent(unsigned core_id, unsigned kernel_id);
+  unsigned issue_block2core_static(std::vector<unsigned> static_alloc);
+  unsigned issue_block2core_rl(int core, std::vector<int> rl_alloc);
+  void init_kernel_statistics();
+  std::map<kernel_info_t *, std::vector<int>> collect_kernel_statistics();
+  std::map<kernel_info_t *, std::vector<int>> collect_kernel_inst_type_statistics(); 
+  std::map<kernel_info_t *, int> collect_reservation_fails();
+  std::map<kernel_info_t *, std::vector<int>> collect_kernel_l1_cache_statistics(); //0: HIT, 1: MISS
+  //--------
+  /**************************************/
+
   void cache_flush();
   void cache_invalidate();
   bool icnt_injection_buffer_full(unsigned size, bool write);
@@ -2358,6 +2676,15 @@ class simt_core_cluster {
   unsigned m_cta_issue_next_core;
   std::list<unsigned> m_core_sim_order;
   std::list<mem_fetch *> m_response_fifo;
+
+  /*******************
+  * SMK changes --orig. auth: HIMASHU
+  * SMK var
+  **/
+  //HIMANSHU
+  unsigned m_num_function_units_core;
+  //--------
+ /****************************/
 };
 
 class exec_simt_core_cluster : public simt_core_cluster {
