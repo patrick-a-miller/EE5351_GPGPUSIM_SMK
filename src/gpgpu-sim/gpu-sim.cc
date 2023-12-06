@@ -1072,7 +1072,7 @@ int gpgpu_sim::get_occupied_shared_mem()
 		std::vector<kernel_info_t *>::iterator it = gpu_scheduled_kernels.begin() + i;
 		kernel_info_t *k_next = *it;
 		const class function_info *kernel = k_next->entry();
-		const struct gpgpu_ptx_sim_kernel_info *kernel_info = ptx_sim_kernel_info(kernel);
+		const struct gpgpu_ptx_sim_info *kernel_info = ptx_sim_kernel_info(kernel);
 		total_occupied_shared_mem = total_occupied_shared_mem + (get_max_cta_smk(i) * kernel_info->smem);
 	}
 

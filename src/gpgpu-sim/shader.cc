@@ -529,7 +529,7 @@ void shader_core_ctx::reinit_smk(unsigned start_thread, unsigned end_thread, boo
     m_threadState[i].m_cta_id = -1;
   }
   for (unsigned i = start_thread / m_config->warp_size; i < end_thread / m_config->warp_size; ++i) {
-    m_warp[i].reset();
+    m_warp[i]->reset();
     m_simt_stack[i]->reset();
   }
 }
@@ -989,7 +989,7 @@ void shader_core_ctx::fetch() {
         * TODO: review other kernel structures being accessed vs smk struct
         * m_warp[i].init(start_pc,cta_id,i,active_threads, m_dynamic_warp_id, &kernel);
         **/
-        kernel_info_t *k = m_warp[warp_id].get_warp_kernel();
+        kernel_info_t *k = m_warp[warp_id]->get_warp_kernel();
 
         //register_cta_thread_exit(cta_id, k);
         //thread exit pulls other kernel data?
@@ -1809,7 +1809,7 @@ void shader_core_ctx::execute() {
 	  warp_inst_t * dispatch_reg = m_fu[n]->get_dispatch_reg();
 	  if (ready_reg) {
 		  warpId = (*ready_reg)->warp_id();
-		  k = m_warp[warpId].get_warp_kernel();
+		  k = m_warp[warpId]->get_warp_kernel();
 		  if (!last_executed_kernel_fu.empty()){
 			  bool waiting = issue_inst.has_ready() && (!m_fu[n]->can_issue( **ready_reg )) && (k != 0x0) 
 				       && (last_executed_kernel_fu[n] != 0x0) && (last_executed_kernel_fu[n] != k);
@@ -1980,7 +1980,7 @@ void shader_core_ctx::warp_inst_complete_smk(const warp_inst_t &inst, kernel_inf
 	printf("Kernel 1 simulated inst: %lld\n", m_gpu->gpu_sim_insn_kernels[1]);
   }*/
   //--------
-  inst.completed(gpu_tot_sim_cycle + gpu_sim_cycle);
+  inst.completed(m_gpu->gpu_tot_sim_cycle + m_gpu->gpu_sim_cycle);
 }
 //--------
 
@@ -2027,10 +2027,10 @@ void shader_core_ctx::writeback() {
     //- m_warp[warp_id]->dec_inst_in_pipeline();
     //- warp_inst_complete(*pipe_reg);
     //HIMANSHU
-	  kernel_info_t *k = m_warp[warp_id].get_warp_kernel();
+	  kernel_info_t *k = m_warp[warp_id]->get_warp_kernel();
    	bool is_smk_enabled = m_gpu->get_config().smk_enabled();
    	m_scoreboard->releaseRegisters( pipe_reg );
-    m_warp[warp_id].dec_inst_in_pipeline();
+    m_warp[warp_id]->dec_inst_in_pipeline();
 	  if (!is_smk_enabled)
       warp_inst_complete(*pipe_reg);
 	  if (is_smk_enabled)
@@ -2760,7 +2760,7 @@ void ldst_unit::writeback() {
         signed warp_id = m_next_wb.warp_id();
         //HIMANSHU
 		    gpgpu_sim *gpu = m_core->get_gpu();
-        kernel_info_t *k = m_core->get_warp(warp_id).get_warp_kernel();
+        kernel_info_t *k = m_core->get_warp(warp_id)->get_warp_kernel();
         bool is_smk_enabled = gpu->get_config().smk_enabled();
 		    if (is_smk_enabled)
           m_core->warp_inst_complete_smk(m_next_wb, k);
@@ -2997,7 +2997,7 @@ void ldst_unit::cycle() {
           //HIMANSHU
 		      gpgpu_sim *gpu = m_core->get_gpu();
 		      signed warp_id = m_dispatch_reg->warp_id();
-          kernel_info_t *k = m_core->get_warp(warp_id).get_warp_kernel();
+          kernel_info_t *k = m_core->get_warp(warp_id)->get_warp_kernel();
           bool is_smk_enabled = gpu->get_config().smk_enabled();
           if (is_smk_enabled)
             m_core->warp_inst_complete_smk(*m_dispatch_reg, k);
@@ -3692,7 +3692,7 @@ const {
       				padded_cta_size = ((padded_cta_size/warp_size)+1)*(warp_size);
 
 			sum_threads = sum_threads + (ctas[i] * padded_cta_size);
-   			const struct gpgpu_ptx_sim_kernel_info *kernel_info = ptx_sim_kernel_info(kernel);
+   			const struct gpgpu_ptx_sim_info *kernel_info = ptx_sim_kernel_info(kernel);
 			sum_shmem = sum_shmem + (ctas[i] * kernel_info->smem); 
 			sum_regs = sum_regs + (ctas[i] * padded_cta_size * ((kernel_info->regs+3)&~3));
 			sum_ctas = sum_ctas + ctas[i];
@@ -3709,7 +3709,7 @@ const {
 	//Limit by n_threads/shader
    	unsigned int result_thread = (n_thread_per_shader - sum_threads) / padded_cta_size;
 
-   	const struct gpgpu_ptx_sim_kernel_info *kernel_info = ptx_sim_kernel_info(kernel);
+   	const struct gpgpu_ptx_sim_info *kernel_info = ptx_sim_kernel_info(kernel);
 
    	//Limit by shmem/shader
    	unsigned int result_shmem = (unsigned)-1;
@@ -3790,14 +3790,16 @@ unsigned int shader_core_config::max_cta(const kernel_info_t &k, unsigned num_ke
   result = gs_min2(result, result_regs);
   result = gs_min2(result, result_cta);
 
-  static const struct gpgpu_ptx_sim_info *last_kinfo = NULL;
+  
   /*******************
   * SMK changes --orig. auth: HIMASHU
   * SMK perf fix
   * TODO: review if this disabling of print is still needed
   **/
   //HIMANSHU - Slows down the simulation process in case of spatial multitasking
-  /*if (last_kinfo !=
+  /*
+  static const struct gpgpu_ptx_sim_info *last_kinfo = NULL;
+  if (last_kinfo !=
       kernel_info) {  // Only print out stats if kernel_info struct changes
     last_kinfo = kernel_info;
     printf("GPGPU-Sim uArch: CTA/core = %u, limited by:", result);
@@ -4508,7 +4510,7 @@ std::map<kernel_info_t *, std::vector<int>> shader_core_ctx::collect_kernel_l1_c
 
 void shader_core_ctx::inc_kernel_l1_cache_statistics(int warp_id, int HIT_MISS) 
 {
-	kernel_info_t *k = m_warp[warp_id].get_warp_kernel();
+	kernel_info_t *k = m_warp[warp_id]->get_warp_kernel();
 	kernel_l1_cache_stats[k][HIT_MISS] = kernel_l1_cache_stats[k][HIT_MISS] + 1;
 }
 
@@ -4546,7 +4548,7 @@ void shader_core_ctx::set_max_cta(const kernel_info_t &kernel) {
   //--------
   /**************************************/
   // calculate the max cta count and cta size for local memory address mapping
-  kernel_max_cta_per_shader = m_config->max_cta(kernel);
+  kernel_max_cta_per_shader = m_config->max_cta(kernel,nkernels);
   unsigned int gpu_cta_size = kernel.threads_per_cta();
   kernel_padded_threads_per_cta =
       (gpu_cta_size % m_config->warp_size)

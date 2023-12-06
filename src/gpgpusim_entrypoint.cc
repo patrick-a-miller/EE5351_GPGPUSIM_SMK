@@ -289,7 +289,7 @@ int gpgpu_context::gpgpu_opencl_ptx_sim_main_perf(kernel_info_t *grid) {
 //HIMANSHU - Needs to be modified later for spatial multitasking and SMK
    std::vector<kernel_info_t *> kernel_pointers;
    //--------
-   g_the_gpu->launch(grid, kernel_pointers);
+   the_gpgpusim->g_the_gpu->launch(grid, kernel_pointers);
   /********************************/
   sem_post(&(the_gpgpusim->g_sim_signal_start));
   sem_wait(&(the_gpgpusim->g_sim_signal_finish));
