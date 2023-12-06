@@ -1116,7 +1116,7 @@ class simd_function_unit {
   * SMK changes --orig. auth: HIMASHU
   * accessor functions for SIMD function unit
   **/
-  virtual std::string get_name() { return m_name; } //HIMANSHU
+  //virtual std::string get_name_smk() { return m_name; } //HIMANSHU
   virtual warp_inst_t * get_dispatch_reg() { return m_dispatch_reg; } //HIMANSHU
   /********************************/
 
@@ -1559,6 +1559,7 @@ class shader_core_config : public core_config {
   //- unsigned max_cta(const kernel_info_t &k) const;
   // HIMANSHU - used for SMK
   unsigned max_cta( const kernel_info_t &k, unsigned num_kernels ) const;
+  unsigned max_cta_concurrent(const kernel_info_t &k) const;
   unsigned int allowed_ctas( std::vector<kernel_info_t *> kernel_pointers, unsigned index, std::vector<int> ctas ) const;
   // --------
  /**************************/
@@ -2163,7 +2164,7 @@ class shader_core_ctx : public core_t {
   **/
   //HIMANSHU
   void warp_inst_complete_smk(const warp_inst_t &inst, kernel_info_t *kernel);
-  shd_warp_t get_warp(unsigned warp_id) { return m_warp[warp_id]; }
+  shd_warp_t *get_warp(unsigned warp_id) { return m_warp[warp_id]; }
   class gpgpu_sim * get_gpu() { return m_gpu; }
   //--------
   /*******************************/

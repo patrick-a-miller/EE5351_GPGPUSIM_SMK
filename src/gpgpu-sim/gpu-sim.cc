@@ -1107,7 +1107,13 @@ int gpgpu_sim::max_cta_per_core() const {
 }
 
 int gpgpu_sim::get_max_cta(const kernel_info_t &k) const {
-  return m_shader_config->max_cta(k);
+  /*******************
+  * SMK changes 
+  * split smk and concurrent paths pending reconciliation
+  **/
+  //-return m_shader_config->max_cta(k);
+  return m_shader_config->max_cta_concurrent(k);
+  /*********************************************/
 }
 
 void gpgpu_sim::set_prop(cudaDeviceProp *prop) { m_cuda_properties = prop; }
@@ -1665,11 +1671,16 @@ void shader_core_ctx::mem_instruction_stats(const warp_inst_t &inst) {
 bool shader_core_ctx::can_issue_1block(kernel_info_t &kernel) {
   // Jin: concurrent kernels on one SM
   if (m_config->gpgpu_concurrent_kernel_sm) {
-    if (m_config->max_cta(kernel) < 1) return false;
-
+    /*******************
+    * SMK changes 
+    * split smk and concurrent paths pending reconciliation
+    **/
+    //-if (m_config->max_cta(kernel) < 1) return false;
+    if (m_config->max_cta_concurrent(kernel) < 1) return false;
+    /***********************************************/
     return occupy_shader_resource_1block(kernel, false);
   } else {
-    return (get_n_active_cta() < m_config->max_cta(kernel));
+    return (get_n_active_cta() < m_config->max_cta_concurrent(kernel));
   }
 }
 
@@ -1923,11 +1934,12 @@ void shader_core_ctx::issue_block2core(kernel_info_t &kernel) {
   //- init_warps(free_cta_hw_id, start_thread, end_thread, ctaid, cta_size, kernel);
   //- m_n_active_cta++;
   //HIMANSHU
-    init_warps( free_cta_hw_id, start_thread, end_thread, kernel);
+    //init_warps( free_cta_hw_id, start_thread, end_thread, kernel);
     //--------
 
     // initialize the SIMT stacks and fetch hardware
     //init_warps( free_cta_hw_id, start_thread, end_thread);
+    init_warps(free_cta_hw_id, start_thread, end_thread, ctaid, cta_size, kernel);
     if (!is_smk_enabled) 
     	m_n_active_cta++;
     //HIMANSHU - Register CTA for the kernel
@@ -2075,7 +2087,7 @@ void gpgpu_sim::collect_kernel_l2_cache_statistics(){
 		int cluster_id = sid / num_cores_per_cluster;
 		int core_id = sid % num_cores_per_cluster;
 
-		kernel_info_t *k = m_cluster[cluster_id]->get_core(core_id)->get_warp(wid).get_warp_kernel();
+		kernel_info_t *k = m_cluster[cluster_id]->get_core(core_id)->get_warp(wid)->get_warp_kernel();
 		if (status == HIT)
 			l2_hit_miss_smk[k][0] = l2_hit_miss_smk[k][0] + 1;
 		if (status == MISS)

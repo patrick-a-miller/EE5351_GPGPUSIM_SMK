@@ -1941,8 +1941,8 @@ void ptx_thread_info::ptx_exec_inst(warp_inst_t &inst, unsigned lane_id) {
     //HIMANSHU
       gpgpu_sim *gpu = get_gpu();
       unsigned print_stats_inst = gpu->get_config().get_print_stats_instructions();
-      if ((g_ptx_sim_num_insn % print_stats_inst) == 0){ 
-        	gpu->gpu_ptx_sim_num_insn = g_ptx_sim_num_insn;
+      if ((m_gpu->gpgpu_ctx->func_sim->g_ptx_sim_num_insn % print_stats_inst) == 0){ 
+        	gpu->gpu_ptx_sim_num_insn = m_gpu->gpgpu_ctx->func_sim->g_ptx_sim_num_insn;
           gpu->gpu_print_stats = true;
       }
       //--------
@@ -1961,7 +1961,7 @@ void ptx_thread_info::ptx_exec_inst(warp_inst_t &inst, unsigned lane_id) {
      **/
     //HIMANSHU: Not a good idea.
       unsigned max_inst = gpu->get_config().get_smk_max_instructions();
-      if (g_ptx_sim_num_insn == max_inst)
+      if (m_gpu->gpgpu_ctx->func_sim->g_ptx_sim_num_insn == max_inst)
 		  exit(0);
       //--------
       /****************/

@@ -3883,6 +3883,121 @@ unsigned int shader_core_config::max_cta(const kernel_info_t &k, unsigned num_ke
   return result;
 }
 
+/*******************
+  * SMK changes 
+  * split concurrent mode into own path, pending reconciliation
+  **/
+unsigned int shader_core_config::max_cta_concurrent(const kernel_info_t &k) const {
+  unsigned threads_per_cta = k.threads_per_cta();
+  const class function_info *kernel = k.entry();
+  unsigned int padded_cta_size = threads_per_cta;
+  if (padded_cta_size % warp_size)
+    padded_cta_size = ((padded_cta_size / warp_size) + 1) * (warp_size);
+  // Limit by n_threads/shader
+  unsigned int result_thread = n_thread_per_shader / padded_cta_size;
+
+  const struct gpgpu_ptx_sim_info *kernel_info = ptx_sim_kernel_info(kernel);
+
+  // Limit by shmem/shader
+  unsigned int result_shmem = (unsigned)-1;
+  if (kernel_info->smem > 0)
+    result_shmem = gpgpu_shmem_size / kernel_info->smem;
+
+  // Limit by register count, rounded up to multiple of 4.
+  unsigned int result_regs = (unsigned)-1;
+  if (kernel_info->regs > 0)
+    result_regs = gpgpu_shader_registers /
+                  (padded_cta_size * ((kernel_info->regs + 3) & ~3));
+
+  // Limit by CTA
+  unsigned int result_cta = max_cta_per_core;
+  unsigned result = result_thread;
+  result = gs_min2(result, result_shmem);
+  result = gs_min2(result, result_regs);
+  result = gs_min2(result, result_cta);
+
+  /*
+  static const struct gpgpu_ptx_sim_info *last_kinfo = NULL;
+  if (last_kinfo !=
+      kernel_info) {  // Only print out stats if kernel_info struct changes
+    last_kinfo = kernel_info;
+    printf("GPGPU-Sim uArch: CTA/core = %u, limited by:", result);
+    if (result == result_thread) printf(" threads");
+    if (result == result_shmem) printf(" shmem");
+    if (result == result_regs) printf(" regs");
+    if (result == result_cta) printf(" cta_limit");
+    printf("\n");
+  }
+  */
+  // gpu_max_cta_per_shader is limited by number of CTAs if not enough to keep
+  // all cores busy
+  if (k.num_blocks() < result * num_shader()) {
+    result = k.num_blocks() / num_shader();
+    if (k.num_blocks() % num_shader()) result++;
+  }
+  assert(result <= MAX_CTA_PER_SHADER);
+  if (result < 1) {
+    printf(
+        "GPGPU-Sim uArch: ERROR ** Kernel requires more resources than shader "
+        "has.\n");
+    if (gpgpu_ignore_resources_limitation) {
+      printf(
+          "GPGPU-Sim uArch: gpgpu_ignore_resources_limitation is set, ignore "
+          "the ERROR!\n");
+      return 1;
+    }
+    abort();
+  }
+  if (adaptive_cache_config && !k.cache_config_set) {
+    // For more info about adaptive cache, see
+    // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
+    unsigned total_shmed = kernel_info->smem * result;
+    assert(total_shmed >= 0 && total_shmed <= gpgpu_shmem_size);
+    // assert(gpgpu_shmem_size == 98304); //Volta has 96 KB shared
+    // assert(m_L1D_config.get_nset() == 4);  //Volta L1 has four sets
+    if (total_shmed < gpgpu_shmem_size) {
+      switch (adaptive_cache_config) {
+        case FIXED:
+          break;
+        case ADAPTIVE_VOLTA: {
+          // For Volta, we assign the remaining shared memory to L1 cache
+          // For more info about adaptive cache, see
+          // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#shared-memory-7-x
+          // assert(gpgpu_shmem_size == 98304); //Volta has 96 KB shared
+          // To Do: make it flexible and not tuned to 9KB share memory
+          unsigned max_assoc = m_L1D_config.get_max_assoc();
+          if (total_shmed == 0)
+            m_L1D_config.set_assoc(max_assoc);  // L1 is 128KB and shd=0
+          else if (total_shmed > 0 && total_shmed <= 8192)
+            m_L1D_config.set_assoc(0.9375 *
+                                   max_assoc);  // L1 is 120KB and shd=8KB
+          else if (total_shmed > 8192 && total_shmed <= 16384)
+            m_L1D_config.set_assoc(0.875 *
+                                   max_assoc);  // L1 is 112KB and shd=16KB
+          else if (total_shmed > 16384 && total_shmed <= 32768)
+            m_L1D_config.set_assoc(0.75 * max_assoc);  // L1 is 96KB and
+                                                       // shd=32KB
+          else if (total_shmed > 32768 && total_shmed <= 65536)
+            m_L1D_config.set_assoc(0.5 * max_assoc);  // L1 is 64KB and shd=64KB
+          else if (total_shmed > 65536 && total_shmed <= gpgpu_shmem_size)
+            m_L1D_config.set_assoc(0.25 * max_assoc);  // L1 is 32KB and
+                                                       // shd=96KB
+          else
+            assert(0);
+          break;
+        }
+        default:
+          assert(0);
+      }
+      printf("GPGPU-Sim: Reconfigure L1 cache to %uKB\n",
+             m_L1D_config.get_total_size_inKB());
+    }
+    k.cache_config_set = true;
+  }
+  return result;
+}
+
+
 void shader_core_config::set_pipeline_latency() {
   // calculate the max latency  based on the input
 
