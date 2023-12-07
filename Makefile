@@ -205,11 +205,11 @@ $(SIM_LIB_DIR)/libOpenCL.so: makedirs $(LIBS) opencllib
 	if [ ! -f $(SIM_LIB_DIR)/libOpenCL.so.1.1 ]; then ln -s libOpenCL.so $(SIM_LIB_DIR)/libOpenCL.so.1.1; fi
 
 cudalib: makedirs cuda-sim
-#SMK changes -- orig. auth: HIMANSHU
-#	$(MAKE) -C ./libcuda/ depend
-#	$(MAKE) -C ./libcuda/
-	$(MAKE) -I/usr/include -C ./src/gpgpu-sim/ depend
-	$(MAKE) -I/usr/include -C ./src/gpgpu-sim/
+#SMK changes -- orig. auth: HIMANSHU #reverted to handle compile err
+	$(MAKE) -C ./libcuda/ depend
+	$(MAKE) -C ./libcuda/
+#	$(MAKE) -I/usr/include -C ./src/gpgpu-sim/ depend
+#	$(MAKE) -I/usr/include -C ./src/gpgpu-sim/
 # ------>
 
 ifneq ($(GPGPUSIM_POWER_MODEL),)
