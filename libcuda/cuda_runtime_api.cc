@@ -1052,10 +1052,10 @@ if (cudaLaunchCount == 0) {
  * 
 */
 //HIMANSHU
-	int nkernels = g_cuda_launch_stack.size(); 
+	int nkernels = ctx->api->g_cuda_launch_stack.size(); 
 	std::list<kernel_config> configs;
 	std::list<kernel_config>::iterator it;
-	for (it = g_cuda_launch_stack.begin(); it != g_cuda_launch_stack.end(); it ++)
+	for (it = ctx->api->g_cuda_launch_stack.begin(); it != ctx->api->g_cuda_launch_stack.end(); it ++)
 		configs.push_back(*it);
 	//--------
   /******************************/
@@ -1097,7 +1097,7 @@ unsigned curr_uid = stream->get_uid();
 	//HIMANSHU
 	int count = 0;
 	for (it = configs.begin(); it != configs.end(); it ++) {
-		kernel_info_t *grid = gpgpu_cuda_ptx_sim_init_grid(hostFunPtrs[count],(*it).get_args(),(*it).grid_dim(),(*it).block_dim(),context);
+		kernel_info_t *grid = ctx->api->gpgpu_cuda_ptx_sim_init_grid(hostFunPtrs[count],(*it).get_args(),(*it).grid_dim(),(*it).block_dim(),context);
         	std::string kname = grid->name();
         	dim3 gridDim = (*it).grid_dim();
         	dim3 blockDim = (*it).block_dim();
@@ -1105,9 +1105,12 @@ unsigned curr_uid = stream->get_uid();
 		struct CUstream_st *curr_stream = (*it).get_stream();
 		printf("GPGPU-Sim PTX: pushing kernel \'%s\' to stream %u, gridDim= (%u,%u,%u) blockDim = (%u,%u,%u) \n",
                 kname.c_str(), curr_stream?curr_stream->get_uid():0, gridDim.x,gridDim.y,gridDim.z,blockDim.x,blockDim.y,blockDim.z );
-		stream_operation op(grid, g_ptx_sim_mode, curr_stream);
-		g_stream_manager->push(op);		
+		stream_operation op(grid, ctx->func_sim->g_ptx_sim_mode, curr_stream);
+		ctx->the_gpgpusim->g_stream_manager->push(op);		
 	}
+  kernel_info_t *grid = ctx->api->gpgpu_cuda_ptx_sim_init_grid(
+     hostFun, config.get_args(), config.grid_dim(), config.block_dim(),
+     context);
 	//--------
 /********************************/
   // do dynamic PDOM analysis for performance simulation scenario
