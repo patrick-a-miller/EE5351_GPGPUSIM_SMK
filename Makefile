@@ -206,10 +206,10 @@ $(SIM_LIB_DIR)/libOpenCL.so: makedirs $(LIBS) opencllib
 
 cudalib: makedirs cuda-sim
 #SMK changes -- orig. auth: HIMANSHU
-	$(MAKE) -C ./libcuda/ depend
-	$(MAKE) -C ./libcuda/
-#	 $(MAKE) -I/usr/include -C ./src/gpgpu-sim/ depend
-#	# $(MAKE) -I/usr/include -C ./src/gpgpu-sim/
+#	$(MAKE) -C ./libcuda/ depend
+#	$(MAKE) -C ./libcuda/
+	 $(MAKE) -I/usr/include -C ./src/gpgpu-sim/ depend
+	 $(MAKE) -I/usr/include -C ./src/gpgpu-sim/
 # ------>
 
 ifneq ($(GPGPUSIM_POWER_MODEL),)
