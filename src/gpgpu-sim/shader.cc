@@ -3151,7 +3151,8 @@ void shader_core_ctx::register_cta_thread_exit(unsigned cta_num,
         LIVENESS,
         "GPGPU-Sim uArch: Finished CTA #%u (%lld,%lld), %u CTAs running\n",
         cta_num, m_gpu->gpu_sim_cycle, m_gpu->gpu_tot_sim_cycle,
-        m_n_active_cta);
+        ///m_n_active_cta);
+        temp_cta);
     /*******************
     * SMK changes --orig. auth: HIMASHU
     * SMK cta print
