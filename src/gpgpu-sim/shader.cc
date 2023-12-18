@@ -985,7 +985,7 @@ void shader_core_ctx::fetch() {
 
         /*******************
         * SMK changes --orig. auth: HIMASHU
-        * SMK pass kernel data to warp
+        * SMK passed kernel data in init_warp
         * TODO: review other kernel structures being accessed vs smk struct
         * m_warp[i].init(start_pc,cta_id,i,active_threads, m_dynamic_warp_id, &kernel);
         **/

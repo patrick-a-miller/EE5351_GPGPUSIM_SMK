@@ -1049,7 +1049,7 @@ if (cudaLaunchCount == 0) {
   }
 /***********************
  * SMK changes -- orig. auth: HIMANSHU
- * 
+ * TODO: review uses for configs
 */
 //HIMANSHU
 	int nkernels = ctx->api->g_cuda_launch_stack.size(); 
@@ -1065,7 +1065,7 @@ if (cudaLaunchCount == 0) {
 
 /***********************
  * SMK changes -- orig. auth: HIMANSHU
- * 
+ * TODO: review usage of streams
 */
 unsigned curr_uid = stream->get_uid();
 
@@ -1090,11 +1090,12 @@ unsigned curr_uid = stream->get_uid();
 /***********************
  * SMK changes -- orig. auth: HIMANSHU
  *TODO: large changes to base code, SMK changes affect everything leading to final return. extend changes to new portion?
+ *evaluate mode check 
  **/
  // kernel_info_t *grid = ctx->api->gpgpu_cuda_ptx_sim_init_grid(
  //     hostFun, config.get_args(), config.grid_dim(), config.block_dim(),
  //     context);
-	//HIMANSHU
+//HIMANSHU
 	int count = 0;
 	for (it = configs.begin(); it != configs.end(); it ++) {
 		kernel_info_t *grid = ctx->api->gpgpu_cuda_ptx_sim_init_grid(hostFunPtrs[count],(*it).get_args(),(*it).grid_dim(),(*it).block_dim(),context);
@@ -1108,9 +1109,7 @@ unsigned curr_uid = stream->get_uid();
 		stream_operation op(grid, ctx->func_sim->g_ptx_sim_mode, curr_stream);
 		ctx->the_gpgpusim->g_stream_manager->push(op);		
 	}
-  kernel_info_t *grid = ctx->api->gpgpu_cuda_ptx_sim_init_grid(
-     hostFun, config.get_args(), config.grid_dim(), config.block_dim(),
-     context);
+
 	//--------
 /********************************/
   // do dynamic PDOM analysis for performance simulation scenario
