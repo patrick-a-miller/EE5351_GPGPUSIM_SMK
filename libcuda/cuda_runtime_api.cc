@@ -1091,6 +1091,7 @@ unsigned curr_uid = stream->get_uid();
  * SMK changes -- orig. auth: HIMANSHU
  *TODO: large changes to base code, SMK changes affect everything leading to final return. extend changes to new portion?
  *evaluate mode check 
+ * PDOM analysis, other grid ops outside of smk loop
  **/
  // kernel_info_t *grid = ctx->api->gpgpu_cuda_ptx_sim_init_grid(
  //     hostFun, config.get_args(), config.grid_dim(), config.block_dim(),
@@ -1109,7 +1110,9 @@ unsigned curr_uid = stream->get_uid();
 		stream_operation op(grid, ctx->func_sim->g_ptx_sim_mode, curr_stream);
 		ctx->the_gpgpusim->g_stream_manager->push(op);		
 	}
-
+  kernel_info_t *grid = ctx->api->gpgpu_cuda_ptx_sim_init_grid(
+     hostFun, config.get_args(), config.grid_dim(), config.block_dim(),
+     context);
 	//--------
 /********************************/
   // do dynamic PDOM analysis for performance simulation scenario
